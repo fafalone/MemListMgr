@@ -13,6 +13,7 @@ Memory List Manager is a small, lightweight utility to clear standby memory and 
 Build:\
 -[twinBASIC Beta 553 or newer](https://github.com/twinbasic/twinbasic/releases) (Note: The manifest specifies requireAdministrator so running the built exe from the IDE will fail if tB is not also running as admin.)\
 -(Included in project file) Windows Development Library for twinBASIC v8.3.428 or newer.
+Note: To run from the IDE, the project must be built, and built again after any compiler restart. This is due to resource icons only being available from the compiled exe; the app loads them from the exe when running from the IDE.
 
 ### Available commands:
 
