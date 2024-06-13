@@ -77,7 +77,7 @@
 			"showGrid": true,
 			"showOutlines": false
 		},
-		"__lastUpdateMarker": 3496957364,
+		"__lastUpdateMarker": 1183689235,
 		"_children": [
 			{
 				"Anchors": {
@@ -615,7 +615,7 @@
 						"ForeColor": -2147483630,
 						"Height": 22,
 						"Index": -1,
-						"Left": 138,
+						"Left": 70,
 						"LinkItem": null,
 						"LinkMode": "vbLinkNone",
 						"LinkTimeout": 50,
@@ -632,7 +632,7 @@
 						"UseMnemonic": true,
 						"Visible": true,
 						"WhatsThisHelpID": 0,
-						"Width": 67,
+						"Width": 135,
 						"WordWrap": false,
 						"_className": "Label",
 						"_clsid": "{33AD4ED8-6699-11CF-B70C-00AA0060D393}",
@@ -3869,7 +3869,7 @@
 				"BackColor": 16777215,
 				"BackStyle": "vbBFOpaque",
 				"BorderStyle": "vbNoBorder",
-				"Caption": "Memory List Manager v1.1",
+				"Caption": "Memory List Manager v1.2",
 				"DataField": null,
 				"DataFormat": null,
 				"DataMember": null,
@@ -3965,7 +3965,7 @@
 				"TabIndex": 12,
 				"TabStop": true,
 				"Tag": null,
-				"Text": "Welcome to Memory List Manager v1.1",
+				"Text": "Welcome to Memory List Manager v1.2",
 				"TextHint": null,
 				"TextHintAlways": false,
 				"ToolTipText": null,

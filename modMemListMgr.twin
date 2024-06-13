@@ -1,7 +1,7 @@
 
 /* ********************************************************************
 *                                                                     *
-* Memory List Manager Version 1.1                                     *
+* Memory List Manager Version 1.2                                     *
 * (Main module)                                                       *
 * A simple tool to free standby memory and flush caches.              *
 *                                                                     *
@@ -34,6 +34,8 @@
 * Project home page: https://github.com/fafalone/MemListMgr           *
 *                                                                     *
 * Changelog                                                           *
+*   Version 1.2 (13 Jun 2024) - Free memory label width and commit    *
+*        charge % regressed from tests to release, displaying wrong   *
 *   Version 1.1 (13 Jun 2024) - SetCursor calls fixed.                *
 *   Version 1.0 (13 Jun 2024) - Initial release.                      *
 *                                                                     *
@@ -79,7 +81,7 @@ Module modMemListMgr
             End If
             
             If NTDDI_VERSION >= NTDDI_WIN7 Then
-                CreateJumpList "MemListMgr.1.0.App.ID"
+                CreateJumpList "MemListMgr.1.2.App.ID"
             End If
             
             frmMain.Show

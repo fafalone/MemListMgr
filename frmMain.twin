@@ -4,7 +4,7 @@
 Class frmMain
 ' ***********************************************************************
 ' *                                                                     *
-' * Memory List Manager Version 1.1                                     *
+' * Memory List Manager Version 1.2                                     *
 ' * GUI Form                                                            *
 ' *                                                                     *
 ' * See modMemListMgr.twin for full details.                            *
@@ -22,7 +22,7 @@ Class frmMain
     Private Const PAGE_SIZE As LongLong = &H1000
     
     Private Const szHelpTitle = "Memory List Manager"
-    Private Const szHelpHeader = "Memory List Manager v1.1"
+    Private Const szHelpHeader = "Memory List Manager v1.2"
     Private Const szHelpMessage = "This is a small utility to free up memory held in standby and in caches " & _
                                   "by Jon Johnson based code from SystemInformer. Developed in twinBASIC. " & vbcrlf & vbcrlf & _
                                   "For the readme, filing bug reports, original source, and more utilities, visit the project's GitHub repository:" & vbcrlf & _
@@ -302,12 +302,12 @@ Class frmMain
         status = NtQuerySystemInformation(SystemBasicInformation, sbi, LenB(Of SYSTEM_BASIC_INFORMATION), cbRet)
         status = NtQuerySystemInformation(SystemPerformanceInformation, spi, LenB(Of SYSTEM_PERFORMANCE_INFORMATION), cbRet)
         If NT_SUCCESS(status) Then
-            lblFree.Caption = FormatSizeStd((sbi.NumberOfPhysicalPages - spi.AvailablePages) * PAGE_SIZE) & " (" & Round(CSng(spi.AvailablePages) / CSng(sbi.NumberOfPhysicalPages), 0) & "%)"
+            lblFree.Caption = FormatSizeStd((sbi.NumberOfPhysicalPages - spi.AvailablePages) * PAGE_SIZE) & " (" & Round((CSng(spi.AvailablePages) / CSng(sbi.NumberOfPhysicalPages)) * 100, 0) & "%)"
             lblTotal.Caption = FormatSizeStd(sbi.NumberOfPhysicalPages * PAGE_SIZE)
             lblCmtCur.Caption = FormatSizeStd(CLngLng(spi.CommittedPages) * PAGE_SIZE)
             lblCmtPk.Caption = FormatSizeStd(CLngLng(spi.PeakCommitment) * PAGE_SIZE)
             lblCmtLim.Caption = FormatSizeStd(CLngLng(spi.CommitLimit) * PAGE_SIZE)
-            lblCmtPct.Caption = Round(CSng(spi.CommittedPages) / CSng(spi.CommitLimit), 0) & "%"
+            lblCmtPct.Caption = Round((CSng(spi.CommittedPages) / CSng(spi.CommitLimit)) * 100, 0) & "%"
         Else
             lblFree.Caption = "Unknown"
             lblTotal.Caption = "Unknown"
