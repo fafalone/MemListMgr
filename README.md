@@ -51,6 +51,63 @@ Further, on Windows 7 and above, the taskbar icon has a jump list to quickly acc
 
 ![image](https://github.com/fafalone/MemListMgr/assets/7834493/e7959ccf-679c-44f2-bbae-32f6b8831de5)
 
+### How it works
+
+These actions are done using the `NtSetSystemInformation` API; it's just straightforward calls:
+
+```vba
+    Public Function ClearStandby(Optional bLowPriority As Boolean = False) As NTSTATUS
+        Dim nCmd As SYSTEM_MEMORY_LIST_COMMAND
+        If bLowPriority Then
+            nCmd = MemoryPurgeLowPriorityStandbyList
+        Else
+            nCmd = MemoryPurgeStandbyList
+        End If
+        Dim status As NTSTATUS
+        SetCursor IDC_WAIT
+        status = NtSetSystemInformation(SystemMemoryListInformation, nCmd, LenB(nCmd))
+        SetCursor IDC_ARROW
+        Return status
+    End Function
+
+    Public Function CombinePages(Optional pNumCombined As LongLong) As NTSTATUS
+        Dim mci As MEMORY_COMBINE_INFORMATION_EX
+        Dim status As NTSTATUS
+        SetCursor IDC_WAIT
+        status = NtSetSystemInformation(SystemCombinePhysicalMemoryInformation, mci, LenB(Of MEMORY_COMBINE_INFORMATION_EX))
+        pNumCombined = mci.PagesCombined
+        SetCursor IDC_ARROW
+        Return status
+    End Function
+
+    Public Function FlushRegistryCache() As NTSTATUS
+        SetCursor IDC_WAIT
+        FlushRegistryCache = NtSetSystemInformation(SystemRegistryReconciliationInformation, ByVal 0&, 0&)
+        SetCursor IDC_ARROW
+    End Function
+
+    Public Function FlushFileCache(Optional pSize As LongLong) As NTSTATUS
+        Dim sfi As SYSTEM_FILECACHE_INFORMATION
+        Dim sfiSet As SYSTEM_FILECACHE_INFORMATION
+        Dim status As NTSTATUS
+        Dim bRet As Byte
+        Dim cb As Long
+        SetCursor IDC_WAIT
+        status = RtlAdjustPrivilege(SE_INCREASE_QUOTA_PRIVILEGE, 1, 0, bRet)
+        status = NtQuerySystemInformation(SystemFileCacheInformationEx, sfi, LenB(Of SYSTEM_FILECACHE_INFORMATION), cb)
+        If NT_SUCCESS(status) Then
+            sfiSet.MinimumWorkingSet = MAXSIZE_T
+            sfiSet.MaximumWorkingSet = MAXSIZE_T
+            status = NtSetSystemInformation(SystemFileCacheInformationEx, sfiSet, LenB(Of SYSTEM_FILECACHE_INFORMATION))
+            pSize = sfi.CurrentSize
+        End If
+        SetCursor IDC_ARROW
+        Return status
+    End Function
+```
+
+That's pretty much all there is to it.
+
 ### Made using twinBASIC
 ![image](https://github.com/fafalone/MemListMgr/assets/7834493/abba1d5d-0adb-4b32-a0cb-0f43ad13f1e6)
 
