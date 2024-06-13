@@ -1,17 +1,18 @@
 # MemListMgr
-## Memory List Manager v1.1
+## Memory List Manager v1.2
 #### by Jon Johnson (fafalone), (c) 2024, MIT License
 
-![image](https://github.com/fafalone/MemListMgr/assets/7834493/fa2bf40d-1936-4e17-8a77-f2e85500fc4b)
+![image](https://github.com/fafalone/MemListMgr/assets/7834493/d8f88484-b196-4ca6-a025-f0628782eaa1)
 
 Memory List Manager is a small, lightweight utility to clear standby memory and flush caches, without needing to load a full heavyweight system resources app like SystemInformer, the code for which this project is based on. Windows keeps memory contents it thinks you might use again soon loaded and marked as standby, theoretically this memory is 'available' but memory management isn't always perfect, and high persistent standby and especially modified memory can cause reduced system performance, certain issues with some memory intensive apps or even lead to spurious out of memory errors and system destabilization.
 
-### Updates
+### Updates 
+Version 1.2: Display bugs in system memory free and commit charge % labels.\
 Version 1.1: Bug in wait cursor code.
 
-### Requirements
+### Requirements 
 -Windows XP or newer; some features require Windows 7 or Windows 8.1.\
--Program must be run as administrator as it needs the SeProfileSingleProcessPrivilege for basic functions and SeIncreaseQuotaPrivilege for some.\
+-Program must be run as administrator as it needs the SeProfileSingleProcessPrivilege for basic functions and SeIncreaseQuotaPrivilege for some. 
 
 Build:\
 -[twinBASIC Beta 553 or newer](https://github.com/twinbasic/twinbasic/releases) (Note: The manifest specifies requireAdministrator so running the built exe from the IDE will fail if tB is not also running as admin.)\
