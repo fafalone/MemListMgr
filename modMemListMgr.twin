@@ -1,0 +1,356 @@
+
+/* ********************************************************************
+*                                                                     *
+* Memory List Manager Version 1.0                                     *
+* (Main module)                                                       *
+* A simple tool to free standby memory and flush caches.              *
+*                                                                     *
+* Requirements:                                                       *
+*    -Windows XP or newer (note: Some functions require Windows 8 or  *
+*     or Windows 8.1).                                                *
+*    -This program generally must be run as admin for all commands.   *
+*         Specifically, most operations require the                   *
+*         SeProfileSingleProcessPrivilege and emptying the file cache *
+*         requires the SeIncreaseQuotaPrivilege.                      *
+*    -For the IDE, Windows Development Library for twinBASIC v8.3.    *
+*                                                                     *
+* Command line usage:                                                 *
+*    In addition to the GUI, the memory management actions can be     *
+*    invoked through the command line without loading the main form:  *
+*           /clearstdby          Clears standby list                  *
+*           /clearlpstdby        Clears low-priority standby list     *
+*           /flushmod            Flush modified memory to disk        *
+*           /combine             Combines memory pages                *
+*           /emptyws             Empties working sets                 *
+*           /flushreg            Flushes system registry cache        *
+*           /flushfiles          Flushes the system file cache        *
+*    Note: Currently only one parameter at a time is accepted.        *
+*                                                                     *
+* Released: 13 June 2024                                              *
+*                                                                     *
+* Author: Jon Johnson (aka fafalone).                                 *
+* (c) 2024  Licensed under the MIT License, see LICENSE.md            *
+*                                                                     *
+* Project home page: https://github.com/fafalone/MemListMgr           *
+*                                                                     *
+* Changelog                                                           *
+*   Version 1.0 (13 Jun 2024) - Initial release.                      *
+*                                                                     *
+***********************************************************************
+ In this file:
+    Module modMemListMgr - Main program module
+    Class cJumpList - Taskbar Jump List manager
+******************************************************************** */
+
+Module modMemListMgr
+    Option Explicit
+    
+    [Description("Handle to our exe, or if IDE the last exe build to enable running from the IDE.")]
+    Public hMod As LongPtr
+    [Description("The Taskbar JumpList object class wrapper.")]
+    Public cJL As cJumpList
+    
+    'Icon resource IDs
+    Public Const IDI_MAIN = "101"
+    Public Const IDI_WS = "102"
+    Public Const IDI_REG = "103"
+    Public Const IDI_DISK = "104"
+    Public Const IDI_CMB = "105"
+    Public Const IDI_REFRESH = "106"
+    
+    Sub Main()
+        Dim fEnabled As Byte
+        Dim status As NTSTATUS = RtlAdjustPrivilege(SE_PROF_SINGLE_PROCESS_PRIVILEGE, 1, 0, fEnabled)
+        'Debug.Print "RtlAdjustPrivilege status=0x" & Hex$(status) & " " & GetNtErrorString(status)
+        
+        Dim sCmd As String = Command$()
+        If sCmd = "" Then
+            hMod = GetModuleHandleW()
+            Dim InIde As Boolean: Debug.Assert MakeTrue(InIde)
+            If InIde Then
+                'Attempt to load resources from last .exe
+                If (App.LastBuildPath = "") Or (PathFileExists(App.LastBuildPath) = 0) Then
+                    MsgBox "Please build prior to running.", vbCritical + vbOKOnly, App.Title
+                    Exit Sub
+                Else
+                    hMod = LoadLibraryEx(App.LastBuildPath, 0, LOAD_LIBRARY_AS_DATAFILE Or LOAD_LIBRARY_AS_IMAGE_RESOURCE)
+                End If
+            End If
+            
+            If NTDDI_VERSION >= NTDDI_WIN7 Then
+                CreateJumpList "MemListMgr.1.0.App.ID"
+            End If
+            
+            frmMain.Show
+            
+        Else
+            
+            sCmd = LCase$(sCmd)
+            'todo: support multiple ops at once
+            If sCmd = "/clearstdby" Then
+                status = ClearStandby(False)
+            ElseIf sCmd = "/clearlpstdby" Then
+                status = ClearStandby(True)
+            ElseIf sCmd = "/flushmod" Then
+                status = FlushModified()
+            ElseIf sCmd = "/emptyws" Then
+                status = EmptyWorkingSets()
+            ElseIf sCmd = "/combine" Then
+                status = CombinePages()
+            ElseIf sCmd = "/flushreg" Then
+                status = FlushRegistryCache()
+            ElseIf sCmd = "/flushfiles" Then
+                status = FlushFileCache()
+            End If
+            
+        End If
+            
+    End Sub
+    Public Function MakeTrue(ByRef x As Boolean) As Boolean
+        x = True: MakeTrue = True
+    End Function
+    
+    Public Function GetExePath() As String
+        Dim sTmp As String = String$(MAX_PATH, 0)
+        Dim lRet As Long = GetModuleFileName(hMod, sTmp, Len(sTmp))
+        If lRet Then
+            Return Left$(sTmp, lRet)
+        Else
+            Return ""
+        End If
+    End Function
+    
+    Private Sub CreateJumpList(sID As String)
+        On Error GoTo e0
+        Set cJL = New cJumpList
+        cJL.InitList sID
+        
+        Dim pTasks As New EnumerableObjectCollection
+        cJL.AddToList pTasks, "Clear standby RAM", "/clearstdby", "Clears memory marked as standby by the system.", CLng(IDI_MAIN) - 101 'The icon id needed is the zero-based index
+        cJL.AddToList pTasks, "Clear standby RAM (LP)", "/clearlpstdby", "Clears memory marked as low-priority standby by the system.", CLng(IDI_MAIN) - 101
+        cJL.AddToList pTasks, "Flush modified RAM", "/flushmod", "Flushes memory waiting to be written to disk.", CLng(IDI_MAIN) - 101
+        cJL.AddToList pTasks 'Leave blank for separator
+        cJL.AddToList pTasks, "Empty working sets", "/emptyws", "Empties working sets.", CLng(IDI_WS) - 101
+        cJL.AddToList pTasks, "Combine pages", "/combine", "Combines memory pages for efficiency.", CLng(IDI_CMB) - 101
+        cJL.AddToList pTasks, "Flush registry cache", "/flushreg", "Flushes the system registry cache.", CLng(IDI_REG) - 101
+        cJL.AddToList pTasks, "Flush system file cache", "/flushfiles", "Flushes the system file cache.", CLng(IDI_DISK) - 101
+                        
+        cJL.AddUserTasks pTasks
+
+        cJL.CommitList
+        
+        Exit Sub
+    e0:
+        Debug.Print "Error creating jump list, " & Err.Number & ": " & Err.Description
+    End Sub
+    
+    Public Function ClearStandby(Optional bLowPriority As Boolean = False) As NTSTATUS
+        Dim nCmd As SYSTEM_MEMORY_LIST_COMMAND
+        If bLowPriority Then
+            nCmd = MemoryPurgeLowPriorityStandbyList
+        Else
+            nCmd = MemoryPurgeStandbyList
+        End If
+        Dim status As NTSTATUS
+        SetCursor IDC_WAIT
+        status = NtSetSystemInformation(SystemMemoryListInformation, nCmd, LenB(nCmd))
+        SetCursor IDC_ARROW
+        Return status
+    End Function
+    
+    Public Function FlushModified() As NTSTATUS
+        Dim nCmd As SYSTEM_MEMORY_LIST_COMMAND = MemoryFlushModifiedList
+        Dim status As NTSTATUS
+        SetCursor IDC_WAIT
+        status = NtSetSystemInformation(SystemMemoryListInformation, nCmd, LenB(nCmd))
+        SetCursor IDC_ARROW
+        Return status
+    End Function
+    
+    Public Function EmptyWorkingSets() As NTSTATUS
+        Dim nCmd As SYSTEM_MEMORY_LIST_COMMAND = MemoryEmptyWorkingSets
+        Dim status As NTSTATUS
+        SetCursor IDC_WAIT
+        status = NtSetSystemInformation(SystemMemoryListInformation, nCmd, LenB(nCmd))
+        SetCursor IDC_ARROW
+        Return status
+    End Function
+    
+    Public Function CombinePages(Optional pNumCombined As LongLong) As NTSTATUS
+        Dim mci As MEMORY_COMBINE_INFORMATION_EX
+        Dim status As NTSTATUS
+        SetCursor IDC_WAIT
+        status = NtSetSystemInformation(SystemCombinePhysicalMemoryInformation, mci, LenB(Of MEMORY_COMBINE_INFORMATION_EX))
+        pNumCombined = mci.PagesCombined
+        SetCursor IDC_ARROW
+        Return status
+    End Function
+    
+    Public Function FlushRegistryCache() As NTSTATUS
+        SetCursor IDC_WAIT
+        FlushRegistryCache = NtSetSystemInformation(SystemRegistryReconciliationInformation, ByVal 0&, 0&)
+        SetCursor IDC_ARROW
+    End Function
+    
+    Public Function FlushFileCache(Optional pSize As LongLong) As NTSTATUS
+        Dim sfi As SYSTEM_FILECACHE_INFORMATION
+        Dim sfiSet As SYSTEM_FILECACHE_INFORMATION
+        Dim status As NTSTATUS
+        Dim bRet As Byte
+        Dim cb As Long
+        SetCursor IDC_WAIT
+        status = RtlAdjustPrivilege(SE_INCREASE_QUOTA_PRIVILEGE, 1, 0, bRet)
+        status = NtQuerySystemInformation(SystemFileCacheInformationEx, sfi, LenB(Of SYSTEM_FILECACHE_INFORMATION), cb)
+        If NT_SUCCESS(status) Then
+            sfiSet.MinimumWorkingSet = MAXSIZE_T
+            sfiSet.MaximumWorkingSet = MAXSIZE_T
+            status = NtSetSystemInformation(SystemFileCacheInformationEx, sfiSet, LenB(Of SYSTEM_FILECACHE_INFORMATION))
+            pSize = sfi.CurrentSize
+        End If
+        SetCursor IDC_ARROW
+        Return status
+    End Function
+    
+
+    Public Function NTDDI_VERSION() As Long
+        'Gets the NTDDI version value associated with the current OS
+        'Note: This is imperfect; not all Win10/11 builds are represented,
+        '      and it's not future proof as those are hard coded.
+        'Ignores version lie compatibility shims
+        Static ntddi As Long
+        If ntddi Then Return ntddi
+        Dim dwMajor As Long, dwMinor As Long, dwBuild As Long
+        CopyMemory dwMajor, ByVal &H7FFE026C, 4
+        CopyMemory dwMinor, ByVal &H7FFE0270, 4
+        Dim tPeb As PEB, lpPeb As LongPtr
+        Dim usCSD As Integer
+        lpPeb = RtlGetCurrentPeb()
+        If lpPeb Then
+            CopyMemory tPeb, ByVal lpPeb, LenB(Of PEB)
+            usCSD = tPeb.OSCSDVersion
+            Debug.Print "OSCSDVersion = " & usCSD
+        End If
+        If dwMajor < 10 Then
+            ntddi += ((dwMajor And &HFF&) << 24&)
+            ntddi += ((dwMinor And &HFF&) << 16&)
+            ntddi += ((usCSD >> 8) And &HFF)
+            ntddi += (usCSD And &HFF&)
+        ElseIf (dwMajor = 10) And (dwMinor = 0) Then
+            CopyMemory dwBuild, ByVal &H7FFE0260, 4
+            If dwBuild > 26100 Then
+                ntddi = WDK_NTDDI_VERSION
+            ElseIf dwBuild >= 26100 Then: ntddi = NTDDI_WIN11_GE
+            ElseIf dwBuild >= 25346 Then: ntddi = NTDDI_WIN11_ZN
+            ElseIf dwBuild >= 22631 Then: ntddi = NTDDI_WIN11_CU
+            ElseIf dwBuild >= 22621 Then: ntddi = NTDDI_WIN11_NI
+            ElseIf dwBuild >= 22000 Then: ntddi = NTDDI_WIN11
+            ElseIf dwBuild >= 19045 Then: ntddi = NTDDI_WIN10_CU
+            ElseIf dwBuild >= 19044 Then: ntddi = NTDDI_WIN10_CO
+            ElseIf dwBuild >= 19043 Then: ntddi = NTDDI_WIN10_FE
+            ElseIf dwBuild >= 19042 Then: ntddi = NTDDI_WIN10_MN
+            ElseIf dwBuild >= 19041 Then: ntddi = NTDDI_WIN10_VB
+            ElseIf dwBuild >= 18362 Then: ntddi = NTDDI_WIN10_19H1
+            ElseIf dwBuild >= 17763 Then: ntddi = NTDDI_WIN10_RS5
+            ElseIf dwBuild >= 17134 Then: ntddi = NTDDI_WIN10_RS4
+            ElseIf dwBuild >= 16299 Then: ntddi = NTDDI_WIN10_RS3
+            ElseIf dwBuild >= 15063 Then: ntddi = NTDDI_WIN10_RS2
+            ElseIf dwBuild >= 14393 Then: ntddi = NTDDI_WIN10_RS1
+            ElseIf dwBuild >= 10586 Then: ntddi = NTDDI_WIN10_TH2
+            ElseIf dwBuild >= 10240 Then: ntddi = NTDDI_WINTHRESHOLD
+            End If
+        Else
+            ntddi = MAXLONG
+        End If
+        Return ntddi
+    End Function
+    
+
+End Module
+
+Class cJumpList
+    Option Explicit
+    'cJump v1.1: Using Jump Lists in twinBASIC
+    'by fafalone
+    '
+    'Requires Windows Development Library for twinBASIC (WinDevLib)
+
+    Private pCDL As ICustomDestinationList
+
+    Public Function InitList(sAppID As String, Optional nMinSlot As Long) As IObjectArray
+        On Error GoTo e0
+        SetCurrentProcessExplicitAppUserModelID StrPtr(sAppID)
+        Set pCDL = New DestinationList
+        pCDL.SetAppId StrPtr(sAppID)
+        pCDL.BeginList nMinSlot, IID_IObjectArray, InitList
+        Exit Function
+    e0:
+        Debug.Print "Error initializing jump list, " & Err.Number & ": " & Err.Description
+    End Function
+ 
+    Public Sub AddToList(pList As IObjectCollection, Optional sTitle As String, Optional sArgs As String, Optional sToolTip As String, Optional ByVal nIconID As Long)
+    Dim hr As Long
+    Dim pLink As ShellLinkW
+    Dim pStore As IPropertyStore
+    Dim pUnk As IUnknownUnrestricted
+    Set pLink = New ShellLinkW
+    Dim sFile As String
+    Dim bWow64 As BOOL
+    IsWow64Process(GetCurrentProcess(), bWow64)
+    Dim InIde As Boolean: Debug.Assert MakeTrue(InIde)
+    If InIde() Then
+        If App.LastBuildPath <> "" Then
+            sFile = App.LastBuildPath
+        Else
+            'TODO: Change when tB Bug relating to EXEName is fixed.
+            If bWow64 Then
+                sFile = App.Path & "\" & App.EXEName & "_win32.exe"
+            Else
+                sFile = App.Path & "\" & App.EXEName & "_win64.exe"
+            End If
+            
+        End If
+    Else
+        sFile = GetExePath()
+    End If
+    pLink.SetPath StrPtr(sFile)
+    pLink.SetArguments StrPtr(sArgs)
+    pLink.SetDescription StrPtr(sToolTip)
+    pLink.SetIconLocation StrPtr(sFile), nIconID
+  
+    Set pUnk = pLink
+    hr = pUnk.QueryInterface(IID_IPropertyStore, pStore)
+    If SUCCEEDED(hr) Then
+        If sTitle <> "" Then
+            Dim vTitle As Variant
+            vTitle = CVar(sTitle)
+            pStore.SetValue PKEY_Title, vTitle
+            pStore.Commit
+        Else
+            pStore.SetValue PKEY_AppUserModel_IsDestListSeparator, CVar(True)
+            pStore.Commit
+        End If
+
+        pList.AddObject pLink
+    End If
+    Exit Sub
+e0:
+    Debug.Print "Error adding item to jump list, " & Err.Number & ": " & Err.Description
+    End Sub
+
+
+    Public Sub AddUserTasks(pList As IObjectCollection)
+    pCDL.AddUserTasks ByVal ObjPtr(pList)
+    End Sub
+
+    Public Sub AppendCategory(sCat As String, pList As IObjectCollection)
+    pCDL.AppendCategory ByVal StrPtr(sCat), ByVal ObjPtr(pList)
+    End Sub
+
+    Public Sub AbortList()
+    pCDL.AbortList
+    End Sub
+
+    Public Sub CommitList()
+    pCDL.CommitList
+    End Sub
+End Class

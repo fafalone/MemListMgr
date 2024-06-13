@@ -1,0 +1,466 @@
+[Description("Memory List Manager Main Form")]
+[FormDesignerId("DBB73BBF-63FC-45F2-8BD5-C5047D3F5ECA")]
+[PredeclaredId]
+Class frmMain
+' ***********************************************************************
+' *                                                                     *
+' * Memory List Manager Version 1.0                                     *
+' * GUI Form                                                            *
+' *                                                                     *
+' * See modMemListMgr.twin for full details.                            *
+' *                                                                     *
+' ***********************************************************************
+
+    
+    
+    Private Const sSizeFmt_byte = "0 bytes"
+    Private Const sSizeFmt_kb = "#,##0 KB"
+    Private Const sSizeFmt_mb = "#,##0.00 MB"
+    Private Const sSizeFmt_gb = "#,##0.00 GB"
+    Private Const sSizeFmt_tb = "#,##0.00 TB"
+    Private Const sSizeFmt_pb = "#,##0.00 PB"
+    
+    Private Const PAGE_SIZE As LongLong = &H1000
+    
+    Private Const szHelpTitle = "Memory List Manager"
+    Private Const szHelpHeader = "Memory List Manager v1.0"
+    Private Const szHelpMessage = "This is a small utility to free up memory held in standby and in caches " & _
+                                  "by Jon Johnson based code from SystemInformer. Developed in twinBASIC. " & vbcrlf & vbcrlf & _
+                                  "For the readme, filing bug reports, original source, and more utilities, visit the project's GitHub repository:" & vbcrlf & _
+                                  "<a href=""https://github.com/fafalone/MemListMgr"">https://github.com/fafalone/MemListMgr</a>"
+    Private Const szHelpFooter = "Copyright ©2024 Jon Johnson. Licensed under the MIT license. See code or repository for more  information."
+    Private Const szHelpIconRes = "101"
+    
+    Private cxyIcon As Long, cxyIconBtn As Long
+    Private m_ScaleX As Single, m_ScaleY As Single
+    
+
+    
+    Private Sub OnLoad() Handles Form.Load
+        If NTDDI_VERSION < NTDDI_WINXP Then
+            MsgBox "This program requires Windows XP or later.", vbCritical + vbOKOnly, App.Title
+            End
+        End If
+        
+        'Temp fix for tB bug, add min button back:
+        Dim dwStyle As WindowStyles = CLng(GetWindowLong(Me.hWnd, GWL_STYLE))
+        dwStyle = dwStyle Or WS_MINIMIZEBOX
+        SetWindowLong Me.hWnd, GWL_STYLE, dwStyle
+        
+        
+        Dim bWow64 As BOOL
+        IsWow64Process GetCurrentProcess(), bWow64
+        If bWow64 Then
+            Dim r As VbMsgBoxResult = MsgBox("It's strongly recommended you run the 64bit version of this app on 64bit Windows. Continue anyway?", vbExclamation + vbYesNo, App.Title)
+            If r = vbNo Then End
+        End If
+       
+        Dim hDC As LongPtr
+        hDC = GetDC(0&)
+        m_ScaleX = GetDeviceCaps(hDC, LOGPIXELSX) / 96
+        m_ScaleY = GetDeviceCaps(hDC, LOGPIXELSY) / 96
+        Select Case m_ScaleX
+            Case Is <= 1: cxyIcon = 24
+            Case Is <= 1.25: cxyIcon = 32
+            Case Is <= 1.5: cxyIcon = 48
+            Case Else: cxyIcon = 64
+        End Select
+        ReleaseDC 0&, hDC
+        
+        InitButtonIcons
+        
+        UpdateMemoryInfo
+        
+    End Sub
+    
+    Private Sub OnSetAutoRefresh() Handles Check1.Click
+        If Check1.Value = vbChecked Then
+            Timer1.Interval = CLng(Text1.Text) * 1000
+            Timer1.Enabled = True
+        Else
+            Timer1.Enabled = False
+        End If
+    End Sub
+    
+    Private Sub OnUpdateInterval() Handles Text1.Change
+        Timer1.Interval = CLng(Text1.Text) * 1000
+    End Sub
+    
+    Private Sub OnUpdateInfo() Handles Timer1.Timer, cmdUpdate.Click
+        UpdateMemoryInfo
+    End Sub
+    
+    
+    Private Sub OnEmptyLPStandby() Handles cmdEmptyLPStandby.Click
+        Dim status As NTSTATUS = ClearStandby(True)
+        If NT_SUCCESS(status) Then
+            txtStatus.Text = "Successfully cleared low priority standby memory."
+            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            txtStatus.Text = "Insufficient privileges to execute memory operation."
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            txtStatus.Text = "This command is not supported on your version of Windows."
+        Else
+            Beep
+            txtStatus.Text = "Failed to clear low priority standby memory, " & GetNtErrorString(status)
+        End If
+    End Sub
+    
+    Private Sub OnEmptyStandby() Handles cmdEmptyStandby.Click
+        Dim status As NTSTATUS = ClearStandby(False)
+        If NT_SUCCESS(status) Then
+            txtStatus.Text = "Successfully cleared standby memory."
+            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            txtStatus.Text = "Insufficient privileges to execute memory operation."
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            txtStatus.Text = "This command is not supported on your version of Windows."
+        Else
+            Beep
+            txtStatus.Text = "Failed to clear standby memory, " & GetNtErrorString(status)
+        End If
+    End Sub
+    
+    Private Sub OnFlushModified() Handles cmdFlushModified.Click
+        Dim status As NTSTATUS = FlushModified()
+        If NT_SUCCESS(status) Then
+            txtStatus.Text = "Successfully flushed modified pages."
+            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            txtStatus.Text = "Insufficient privileges to execute memory operation."
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            txtStatus.Text = "This command is not supported on your version of Windows."
+        Else
+            Beep
+            txtStatus.Text = "Failed to flush modified pages, " & GetNtErrorString(status)
+        End If
+        End Sub
+    
+    Private Sub OnEmptyWorkingSets() Handles cmdEmptyWS.Click
+        Dim status As NTSTATUS = EmptyWorkingSets()
+        If NT_SUCCESS(status) Then
+            txtStatus.Text = "Successfully emptied working sets."
+            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            txtStatus.Text = "Insufficient privileges to execute memory operation."
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            txtStatus.Text = "This command is not supported on your version of Windows."
+        Else
+            Beep
+            txtStatus.Text = "Failed to empty working sets, " & GetNtErrorString(status)
+        End If
+    End Sub
+    
+    Private Sub OnCombinePages() Handles cmdCombine.Click
+        Dim llCb As LongLong
+        Dim status As NTSTATUS = CombinePages(llCb)
+        If NT_SUCCESS(status) Then
+            txtStatus.Text = "Combined " & FormatSizeStd(llCb * PAGE_SIZE) & " (" & llCb & " pages)"
+            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            txtStatus.Text = "Insufficient privileges to execute memory operation."
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            txtStatus.Text = "This command is not supported on your version of Windows."
+        Else
+            Beep
+            txtStatus.Text = "Failed to combine pages, " & GetNtErrorString(status)
+        End If
+    End Sub
+    
+    Private Sub OnFlushRegCache() Handles cmdFlushRegCache.Click
+        Dim status As NTSTATUS = FlushRegistryCache()
+        If NT_SUCCESS(status) Then
+            txtStatus.Text = "Successfully flushed registry cache."
+            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            txtStatus.Text = "Insufficient privileges to execute memory operation."
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            txtStatus.Text = "This command is not supported on your version of Windows."
+        Else
+            Beep
+            txtStatus.Text = "Failed to flush registry cache, " & GetNtErrorString(status)
+        End If
+    End Sub
+    
+    Private Sub OnFlushFileCache() Handles cmdFlushFileCache.Click
+        Dim llCb As LongLong
+        Dim status As NTSTATUS = FlushFileCache(llCb)
+        If NT_SUCCESS(status) Then
+            txtStatus.Text = "Successully flushed " & FormatSizeStd(llCb) & " in system file cache."
+            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            txtStatus.Text = "Insufficient privileges to execute memory operation."
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            txtStatus.Text = "This command is not supported on your version of Windows."
+        Else
+            Beep
+            txtStatus.Text = "Failed to flush system file cache, " & GetNtErrorString(status)
+        End If
+    End Sub
+    
+    
+    Private Sub OnAbout() Handles cmdAbout.Click
+        ShowAbout
+    End Sub
+    Private Sub OnExit() Handles cmdExit.Click
+        Unload Me
+    End Sub
+    
+    Private Sub ShowAbout()
+        Dim tdc As TASKDIALOGCONFIG
+        tdc.cbSize = LenB(Of TASKDIALOGCONFIG)
+        tdc.hInstance = hMod
+        tdc.hWndParent = Me.hWnd
+        tdc.dwCommonButtons = TDCBF_CLOSE_BUTTON
+        tdc.dwFlags = TDF_ENABLE_HYPERLINKS
+        tdc.pfCallback = AddressOf TaskDialogCallbackProc
+        tdc.pszMainIcon = MAKEINTRESOURCE(CLng(TD_SHIELD_GRAY_ICON))
+        tdc.pszFooterIcon = MAKEINTRESOURCE(CLng(TD_INFORMATION_ICON))
+        tdc.pszWindowTitle = StrPtr(szHelpTitle)
+        tdc.pszMainInstruction = StrPtr(szHelpHeader)
+        tdc.pszContent = StrPtr(szHelpMessage)
+        tdc.pszFooter = StrPtr(szHelpFooter)
+        
+        Dim lRes As Long = TaskDialogIndirect(tdc)
+    End Sub
+    
+    [Description("Loads button icons from the resource file (which is was a compiled exe must exist to take them from when running in the IDE). ")]
+    Private Sub InitButtonIcons()
+        Select Case m_ScaleX
+            Case Is <= 1: cxyIconBtn = 24
+            Case Is <= 1.25: cxyIconBtn = 32
+            Case Is <= 1.5: cxyIconBtn = 48
+            Case Else: cxyIconBtn = 64
+        End Select
+        Dim hBtn As LongPtr = LoadImage(hMod, ByVal StrPtr(IDI_MAIN), IMAGE_ICON, cxyIconBtn, cxyIconBtn, LR_DEFAULTCOLOR Or LR_SHARED)
+        If hBtn Then
+            ButtonIconAssign cmdEmptyLPStandby.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+            ButtonIconAssign cmdEmptyStandby.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+            ButtonIconAssign cmdFlushModified.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+            DestroyIcon hBtn: hBtn = 0
+        End If
+        hBtn = LoadImage(hMod, ByVal StrPtr(IDI_WS), IMAGE_ICON, cxyIconBtn, cxyIconBtn, LR_DEFAULTCOLOR Or LR_SHARED)
+        If hBtn Then ButtonIconAssign cmdEmptyWS.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+        DestroyIcon hBtn: hBtn = 0
+        hBtn = LoadImage(hMod, ByVal StrPtr(IDI_CMB), IMAGE_ICON, cxyIconBtn, cxyIconBtn, LR_DEFAULTCOLOR Or LR_SHARED)
+        If hBtn Then ButtonIconAssign cmdCombine.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+        DestroyIcon hBtn: hBtn = 0
+        hBtn = LoadImage(hMod, ByVal StrPtr(IDI_DISK), IMAGE_ICON, cxyIconBtn, cxyIconBtn, LR_DEFAULTCOLOR Or LR_SHARED)
+        If hBtn Then ButtonIconAssign cmdFlushFileCache.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+        DestroyIcon hBtn: hBtn = 0
+        hBtn = LoadImage(hMod, ByVal StrPtr(IDI_REG), IMAGE_ICON, cxyIconBtn, cxyIconBtn, LR_DEFAULTCOLOR Or LR_SHARED)
+        If hBtn Then ButtonIconAssign cmdFlushRegCache.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+        DestroyIcon hBtn: hBtn = 0
+        hBtn = LoadImage(hMod, ByVal StrPtr(IDI_REFRESH), IMAGE_ICON, cxyIconBtn, cxyIconBtn, LR_DEFAULTCOLOR Or LR_SHARED)
+        If hBtn Then ButtonIconAssign cmdUpdate.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+        DestroyIcon hBtn: hBtn = 0
+    End Sub
+
+    [Description("Assigns an HICON image to a CommandButton control with the given size and margins.")]
+    Private Sub ButtonIconAssign(hWnd As LongPtr, hIcon As LongPtr, cx As Long, CY As Long, margLeft As Long, margRight As Long, margTop As Long, margBottom As Long)
+
+    On Error GoTo e0
+    Dim bi4 As BUTTON_IMAGELIST
+    bi4.himl = ImageList_Create(cx, CY, ILC_COLOR32 Or ILC_MASK, 1, 1)
+    If bi4.himl Then
+        bi4.margin.Left = margLeft
+        bi4.margin.Right = margRight
+        bi4.margin.Top = margTop
+        bi4.margin.Bottom = margBottom
+        ImageList_ReplaceIcon bi4.himl, -1, hIcon
+        Call SendMessage(hWnd, BCM_SETIMAGELIST, 0&, bi4)
+    End If
+
+    On Error GoTo 0
+    Exit Sub
+
+    e0:
+    Debug.Print "ButtonIconAssign.Error->" & Err.Description & " (" & Err.Number & ")"
+
+    End Sub
+        
+    Private Sub UpdateMemoryInfo()
+        Dim status As NTSTATUS
+        Dim cbRet As Long
+        
+        'Basic info 
+        Dim sbi As SYSTEM_BASIC_INFORMATION
+        Dim spi As SYSTEM_PERFORMANCE_INFORMATION
+        status = NtQuerySystemInformation(SystemBasicInformation, sbi, LenB(Of SYSTEM_BASIC_INFORMATION), cbRet)
+        status = NtQuerySystemInformation(SystemPerformanceInformation, spi, LenB(Of SYSTEM_PERFORMANCE_INFORMATION), cbRet)
+        If NT_SUCCESS(status) Then
+            lblFree.Caption = FormatSizeStd((sbi.NumberOfPhysicalPages - spi.AvailablePages) * PAGE_SIZE) & " (" & Round(CSng(spi.AvailablePages) / CSng(sbi.NumberOfPhysicalPages), 0) & "%)"
+            lblTotal.Caption = FormatSizeStd(sbi.NumberOfPhysicalPages * PAGE_SIZE)
+            lblCmtCur.Caption = FormatSizeStd(CLngLng(spi.CommittedPages) * PAGE_SIZE)
+            lblCmtPk.Caption = FormatSizeStd(CLngLng(spi.PeakCommitment) * PAGE_SIZE)
+            lblCmtLim.Caption = FormatSizeStd(CLngLng(spi.CommitLimit) * PAGE_SIZE)
+            lblCmtPct.Caption = Round(CSng(spi.CommittedPages) / CSng(spi.CommitLimit), 0) & "%"
+        Else
+            lblFree.Caption = "Unknown"
+            lblTotal.Caption = "Unknown"
+            lblCmtCur.Caption = "Unknown"
+            lblCmtPk.Caption = "Unknown"
+            lblCmtLim.Caption = "Unknown"
+            lblCmtPct.Caption = "---%"
+        End If
+        
+        'Memory list info pane:
+        Dim sml As SYSTEM_MEMORY_LIST_INFORMATION
+        Dim llST As LongLong, llSTR As LongLong
+        Dim i As Long
+        status = NtQuerySystemInformation(SystemMemoryListInformation, sml, LenB(Of SYSTEM_MEMORY_LIST_INFORMATION), cbRet)
+        If NT_SUCCESS(status) Then
+            lblZero.Caption = FormatSizeStd(CLngLng(sml.ZeroPageCount) * PAGE_SIZE)
+            lblListFree.Caption = FormatSizeStd(CLngLng(sml.FreePageCount) * PAGE_SIZE)
+            lblListMod.Caption = FormatSizeStd(CLngLng(sml.ModifiedPageCount) * PAGE_SIZE)
+            lblListModNW.Caption = FormatSizeStd(CLngLng(sml.ModifiedNoWritePageCount) * PAGE_SIZE)
+            If NTDDI_VERSION > NTDDI_WIN8 Then
+                lblListModPF.Caption = FormatSizeStd(CLngLng(sml.ModifiedPageCountPageFile) * PAGE_SIZE)
+            Else
+                lblListModPF.Caption = "N/A"
+            End If
+            lblBad.Caption = FormatSizeStd(CLngLng(sml.BadPageCount) * PAGE_SIZE)
+            For i = 0 To 7
+                llST += sml.PageCountByPriority(i)
+                llSTR += sml.RepurposedPagesByPriority(i)
+            Next
+            lblStdByTot.Caption = FormatSizeStd(CLngLng(llST) * PAGE_SIZE)
+            lblStdByTotR.Caption = FormatSizeStd(CLngLng(llSTR) * PAGE_SIZE)
+            lblSBP0.Caption = FormatSizeStd(CLngLng(sml.PageCountByPriority(0)) * PAGE_SIZE)
+            lblSBP1.Caption = FormatSizeStd(CLngLng(sml.PageCountByPriority(1)) * PAGE_SIZE)
+            lblSBP2.Caption = FormatSizeStd(CLngLng(sml.PageCountByPriority(2)) * PAGE_SIZE)
+            lblSBP3.Caption = FormatSizeStd(CLngLng(sml.PageCountByPriority(3)) * PAGE_SIZE)
+            lblSBP4.Caption = FormatSizeStd(CLngLng(sml.PageCountByPriority(4)) * PAGE_SIZE)
+            lblSBP5.Caption = FormatSizeStd(CLngLng(sml.PageCountByPriority(5)) * PAGE_SIZE)
+            lblSBP6.Caption = FormatSizeStd(CLngLng(sml.PageCountByPriority(6)) * PAGE_SIZE)
+            lblSBP7.Caption = FormatSizeStd(CLngLng(sml.PageCountByPriority(7)) * PAGE_SIZE)
+            lblSBP0R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(0)) * PAGE_SIZE)
+            lblSBP1R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(1)) * PAGE_SIZE)
+            lblSBP2R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(2)) * PAGE_SIZE)
+            lblSBP3R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(3)) * PAGE_SIZE)
+            lblSBP4R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(4)) * PAGE_SIZE)
+            lblSBP5R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(5)) * PAGE_SIZE)
+            lblSBP6R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(6)) * PAGE_SIZE)
+            lblSBP7R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(7)) * PAGE_SIZE)
+        Else
+            lblZero.Caption = "Unknown"
+            lblListFree.Caption = "Unknown"
+            lblListMod.Caption = "Unknown"
+            lblListModNW.Caption = "Unknown"
+            If NTDDI_VERSION > NTDDI_WIN8 Then
+                lblListModPF.Caption = "Unknown"
+            Else
+                lblListModPF.Caption = "N/A"
+            End If
+            lblBad.Caption = "Unknown"
+            lblStdByTot.Caption = "Unknown"
+            lblStdByTotR.Caption = "Unknown"
+            lblSBP0.Caption = "Unknown"
+            lblSBP1.Caption = "Unknown"
+            lblSBP2.Caption = "Unknown"
+            lblSBP3.Caption = "Unknown"
+            lblSBP4.Caption = "Unknown"
+            lblSBP5.Caption = "Unknown"
+            lblSBP6.Caption = "Unknown"
+            lblSBP7.Caption = "Unknown"
+            lblSBP0R.Caption = "Unknown"
+            lblSBP1R.Caption = "Unknown"
+            lblSBP2R.Caption = "Unknown"
+            lblSBP3R.Caption = "Unknown"
+            lblSBP4R.Caption = "Unknown"
+            lblSBP5R.Caption = "Unknown"
+            lblSBP6R.Caption = "Unknown"
+            lblSBP7R.Caption = "Unknown"
+        End If
+    End Sub
+    
+    Private Function FormatSizeStd(ByVal llSize As LongLong) As String
+        Return FormatSize(llSize, False, sSizeFmt_byte, False, sSizeFmt_kb, False, _
+                sSizeFmt_mb, False, sSizeFmt_gb, False, sSizeFmt_tb, False, sSizeFmt_pb)
+    End Function
+    Private Function FormatSize(ByVal llSize As LongLong, _
+                                                bNoBytes As Boolean, sByteFmt As String, _
+                                                bNoKilo As Boolean, sKiloFmt As String, _
+                                                bNoMega As Boolean, sMegaFmt As String, _
+                                                bNoGiga As Boolean, sGigaFmt As String, _
+                                                bNoTera As Boolean, sTeraFmt As String, _
+                                                bNoPeta As Boolean, sPetaFmt As String) As String ' bNoExa As Boolean, bNoZetta As Boolean, bNoYotta As Boolean) As String
+            Dim sName As String
+            Dim dblKBs As Currency
+            'cannot currently work with exabytes and above due to limit of currency data type
+            On Error GoTo e0
+
+            If (bNoKilo = True) And (bNoMega = True) And (bNoGiga = True) And (bNoTera = True) And (bNoPeta = True) Then
+                sName = Format$(llSize, sByteFmt)
+                GoTo chkunit
+            End If
+
+            If (llSize < 1024) And (bNoBytes = False) Then
+                sName = Format$(llSize, sByteFmt)
+            Else
+                dblKBs = llSize / 1024^
+                If ((dblKBs > 999999999999^) And (bNoPeta = False)) Or ((bNoTera = True) And (bNoGiga = True) And (bNoMega = True) And (bNoKilo = True) And (bNoBytes = True)) Then
+                    'file size >1TB and user-pref allows using GB unit
+                    dblKBs = dblKBs / 1024^ / 1024^ / 1024^ / 1024^
+                    sName = Format$(dblKBs, sPetaFmt)
+                ElseIf ((dblKBs > 999999999^) And (bNoTera = False)) Or ((bNoGiga = True) And (bNoMega = True) And (bNoKilo = True) And (bNoBytes = True)) Then
+                    'file size >1TB and user-pref allows using GB unit
+                    dblKBs = dblKBs / 1024^ / 1024^ / 1024^
+                    sName = Format$(dblKBs, sTeraFmt)
+                ElseIf ((dblKBs > 999999^) And (bNoGiga = False)) Or ((bNoMega = True) And (bNoKilo = True) And (bNoBytes = True)) Then
+                    'file size >1GB and user-pref allows using GB unit
+                    dblKBs = dblKBs / 1024^ / 1024^
+                    sName = Format$(dblKBs, sGigaFmt)
+                ElseIf ((dblKBs > 999^) And (bNoMega = False)) Or ((bNoKilo = True) And (bNoBytes = True)) Then
+                    dblKBs = dblKBs / 1024^
+                    sName = Format$(dblKBs, sMegaFmt)
+                ElseIf (bNoKilo = False) Then
+                    sName = Format$(dblKBs, sKiloFmt)
+                Else
+                    sName = Format$(llSize, sByteFmt)
+                End If
+            End If
+
+            chkunit:
+
+            FormatSize = sName
+
+            On Error GoTo 0
+            Exit Function
+
+            e0:
+            Debug.Print "FormatFileSizeCurExB(" & CStr(llSize) & ").Error->" & Err.Description & " (" & Err.Number & ")"
+            FormatSize = vbNullString
+    End Function
+    
+    Public Function TaskDialogCallbackProc(ByVal hwnd As LongPtr, ByVal uNotification As Long, ByVal wParam As LongPtr, ByVal lParam As LongPtr, ByVal lpRefData As LongPtr) As LongPtr
+        Select Case uNotification
+            'Replace the shield icon with our app icon
+            Case TDN_DIALOG_CONSTRUCTED
+                SendMessageW hwnd, TDM_UPDATE_ICON, TDIE_ICON_MAIN, ByVal StrPtr(szHelpIconRes)
+            
+            'lParam is a pointer to the URL, so just forward it to execute with default browser.
+            Case TDN_HYPERLINK_CLICKED
+                Call ShellExecuteW(0, 0, lParam, 0, 0, SW_SHOWNORMAL)
+        End Select
+    End Function
+
+    
+
+End Class
+
+ 
