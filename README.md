@@ -42,7 +42,7 @@ In addition to the GUI, the above commands can be silently run without opening t
 
 `/clearstdby` - Clear standby memory\
 `/clearlpstdby` - Clear low-priority standby memory\
-`/flushmod` = Flush modified memory\
+`/flushmod` - Flush modified memory\
 `/emptyws` - Empty working sets.\
 `/combine` - Combine pages.\
 `/flushreg` - Flush registry cache\
