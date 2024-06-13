@@ -1,10 +1,13 @@
 # MemListMgr
-## Memory List Manager v1.0
+## Memory List Manager v1.1
 #### by Jon Johnson (fafalone), (c) 2024, MIT License
 
 ![image](https://github.com/fafalone/MemListMgr/assets/7834493/fa2bf40d-1936-4e17-8a77-f2e85500fc4b)
 
 Memory List Manager is a small, lightweight utility to clear standby memory and flush caches, without needing to load a full heavyweight system resources app like SystemInformer, the code for which this project is based on. Windows keeps memory contents it thinks you might use again soon loaded and marked as standby, theoretically this memory is 'available' but memory management isn't always perfect, and high persistent standby and especially modified memory can cause reduced system performance, certain issues with some memory intensive apps or even lead to spurious out of memory errors and system destabilization.
+
+### Updates
+Version 1.1: Bug in wait cursor code.
 
 ### Requirements
 -Windows XP or newer; some features require Windows 7 or Windows 8.1.\
@@ -64,26 +67,26 @@ These actions are done using the `NtSetSystemInformation` API; it's just straigh
             nCmd = MemoryPurgeStandbyList
         End If
         Dim status As NTSTATUS
-        SetCursor IDC_WAIT
+        SetCursor LoadCursor(0, IDC_WAIT)
         status = NtSetSystemInformation(SystemMemoryListInformation, nCmd, LenB(nCmd))
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, IDC_ARROW)
         Return status
     End Function
 
     Public Function CombinePages(Optional pNumCombined As LongLong) As NTSTATUS
         Dim mci As MEMORY_COMBINE_INFORMATION_EX
         Dim status As NTSTATUS
-        SetCursor IDC_WAIT
+        etCursor LoadCursor(0, IDC_WAIT)
         status = NtSetSystemInformation(SystemCombinePhysicalMemoryInformation, mci, LenB(Of MEMORY_COMBINE_INFORMATION_EX))
         pNumCombined = mci.PagesCombined
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, IDC_ARROW)
         Return status
     End Function
 
     Public Function FlushRegistryCache() As NTSTATUS
-        SetCursor IDC_WAIT
+        etCursor LoadCursor(0, IDC_WAIT)
         FlushRegistryCache = NtSetSystemInformation(SystemRegistryReconciliationInformation, ByVal 0&, 0&)
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, IDC_ARROW)
     End Function
 
     Public Function FlushFileCache(Optional pSize As LongLong) As NTSTATUS
@@ -92,7 +95,7 @@ These actions are done using the `NtSetSystemInformation` API; it's just straigh
         Dim status As NTSTATUS
         Dim bRet As Byte
         Dim cb As Long
-        SetCursor IDC_WAIT
+        etCursor LoadCursor(0, IDC_WAIT)
         status = RtlAdjustPrivilege(SE_INCREASE_QUOTA_PRIVILEGE, 1, 0, bRet)
         status = NtQuerySystemInformation(SystemFileCacheInformationEx, sfi, LenB(Of SYSTEM_FILECACHE_INFORMATION), cb)
         If NT_SUCCESS(status) Then
@@ -101,7 +104,7 @@ These actions are done using the `NtSetSystemInformation` API; it's just straigh
             status = NtSetSystemInformation(SystemFileCacheInformationEx, sfiSet, LenB(Of SYSTEM_FILECACHE_INFORMATION))
             pSize = sfi.CurrentSize
         End If
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, IDC_ARROW)
         Return status
     End Function
 ```
