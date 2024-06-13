@@ -1,13 +1,13 @@
 
 /* ********************************************************************
 *                                                                     *
-* Memory List Manager Version 1.0                                     *
+* Memory List Manager Version 1.1                                     *
 * (Main module)                                                       *
 * A simple tool to free standby memory and flush caches.              *
 *                                                                     *
 * Requirements:                                                       *
-*    -Windows XP or newer (note: Some functions require Windows 8 or  *
-*     or Windows 8.1).                                                *
+*    -Windows XP or newer (note: Some functions require Windows 7,    *
+*     or Windows 8/Windows 8.1).                                                *
 *    -This program generally must be run as admin for all commands.   *
 *         Specifically, most operations require the                   *
 *         SeProfileSingleProcessPrivilege and emptying the file cache *
@@ -34,6 +34,7 @@
 * Project home page: https://github.com/fafalone/MemListMgr           *
 *                                                                     *
 * Changelog                                                           *
+*   Version 1.1 (13 Jun 2024) - SetCursor calls fixed.                *
 *   Version 1.0 (13 Jun 2024) - Initial release.                      *
 *                                                                     *
 ***********************************************************************
@@ -152,44 +153,44 @@ Module modMemListMgr
             nCmd = MemoryPurgeStandbyList
         End If
         Dim status As NTSTATUS
-        SetCursor IDC_WAIT
+        SetCursor LoadCursor(0, ByVal IDC_WAIT)
         status = NtSetSystemInformation(SystemMemoryListInformation, nCmd, LenB(nCmd))
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, ByVal IDC_ARROW)
         Return status
     End Function
     
     Public Function FlushModified() As NTSTATUS
         Dim nCmd As SYSTEM_MEMORY_LIST_COMMAND = MemoryFlushModifiedList
         Dim status As NTSTATUS
-        SetCursor IDC_WAIT
+        SetCursor LoadCursor(0, ByVal IDC_WAIT)
         status = NtSetSystemInformation(SystemMemoryListInformation, nCmd, LenB(nCmd))
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, ByVal IDC_ARROW)
         Return status
     End Function
     
     Public Function EmptyWorkingSets() As NTSTATUS
         Dim nCmd As SYSTEM_MEMORY_LIST_COMMAND = MemoryEmptyWorkingSets
         Dim status As NTSTATUS
-        SetCursor IDC_WAIT
+        SetCursor LoadCursor(0, ByVal IDC_WAIT)
         status = NtSetSystemInformation(SystemMemoryListInformation, nCmd, LenB(nCmd))
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, ByVal IDC_ARROW)
         Return status
     End Function
     
     Public Function CombinePages(Optional pNumCombined As LongLong) As NTSTATUS
         Dim mci As MEMORY_COMBINE_INFORMATION_EX
         Dim status As NTSTATUS
-        SetCursor IDC_WAIT
+        SetCursor LoadCursor(0, ByVal IDC_WAIT)
         status = NtSetSystemInformation(SystemCombinePhysicalMemoryInformation, mci, LenB(Of MEMORY_COMBINE_INFORMATION_EX))
         pNumCombined = mci.PagesCombined
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, ByVal IDC_ARROW)
         Return status
     End Function
     
     Public Function FlushRegistryCache() As NTSTATUS
-        SetCursor IDC_WAIT
+        SetCursor LoadCursor(0, ByVal IDC_WAIT)
         FlushRegistryCache = NtSetSystemInformation(SystemRegistryReconciliationInformation, ByVal 0&, 0&)
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, ByVal IDC_ARROW)
     End Function
     
     Public Function FlushFileCache(Optional pSize As LongLong) As NTSTATUS
@@ -198,7 +199,7 @@ Module modMemListMgr
         Dim status As NTSTATUS
         Dim bRet As Byte
         Dim cb As Long
-        SetCursor IDC_WAIT
+        SetCursor LoadCursor(0, ByVal IDC_WAIT)
         status = RtlAdjustPrivilege(SE_INCREASE_QUOTA_PRIVILEGE, 1, 0, bRet)
         status = NtQuerySystemInformation(SystemFileCacheInformationEx, sfi, LenB(Of SYSTEM_FILECACHE_INFORMATION), cb)
         If NT_SUCCESS(status) Then
@@ -207,7 +208,7 @@ Module modMemListMgr
             status = NtSetSystemInformation(SystemFileCacheInformationEx, sfiSet, LenB(Of SYSTEM_FILECACHE_INFORMATION))
             pSize = sfi.CurrentSize
         End If
-        SetCursor IDC_ARROW
+        SetCursor LoadCursor(0, ByVal IDC_ARROW)
         Return status
     End Function
     

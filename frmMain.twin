@@ -4,14 +4,13 @@
 Class frmMain
 ' ***********************************************************************
 ' *                                                                     *
-' * Memory List Manager Version 1.0                                     *
+' * Memory List Manager Version 1.1                                     *
 ' * GUI Form                                                            *
 ' *                                                                     *
 ' * See modMemListMgr.twin for full details.                            *
 ' *                                                                     *
 ' ***********************************************************************
 
-    
     
     Private Const sSizeFmt_byte = "0 bytes"
     Private Const sSizeFmt_kb = "#,##0 KB"
