@@ -1,12 +1,21 @@
 # MemListMgr
-## Memory List Manager v1.2
+## Memory List Manager v2.0
 #### by Jon Johnson (fafalone), (c) 2024, MIT License
 
-![image](https://github.com/fafalone/MemListMgr/assets/7834493/d8f88484-b196-4ca6-a025-f0628782eaa1)
+![image](https://github.com/fafalone/MemListMgr/assets/7834493/db57b792-9823-4616-9b55-dae4d9d869ac)
 
 Memory List Manager is a small, lightweight utility to clear standby memory and flush caches, without needing to load a full heavyweight system resources app like SystemInformer, the code for which this project is based on. Windows keeps memory contents it thinks you might use again soon loaded and marked as standby, theoretically this memory is 'available' but memory management isn't always perfect, and high persistent standby and especially modified memory can cause reduced system performance, certain issues with some memory intensive apps or even lead to spurious out of memory errors and system destabilization.
 
-### Updates 
+### Updates
+Version 2.0 (21 Jun 2024)\
+-Added graphical Memory Bar to visualize modified/standby usage\
+    Can change colors, double click key (small circle) to set\
+-Added Auto-optimize option for common procedure\
+-Added option to monitor status and auto-exec AutoOptimize\
+-Added minimize to tray option with commands available from a popup menu when right-clicking the tray icon. (Vista+)\
+-New settings are saved to/loaded from registry\
+-Moved strings to constant list at top for easier translation.
+
 Version 1.2: Display bugs in system memory free and commit charge % labels.\
 Version 1.1: Bug in wait cursor code.
 
@@ -15,7 +24,7 @@ Version 1.1: Bug in wait cursor code.
 -Program must be run as administrator as it needs the SeProfileSingleProcessPrivilege for basic functions and SeIncreaseQuotaPrivilege for some. 
 
 Build:\
--[twinBASIC Beta 553 or newer](https://github.com/twinbasic/twinbasic/releases) (Note: The manifest specifies requireAdministrator so running the built exe from the IDE will fail if tB is not also running as admin.)\
+-[twinBASIC Beta 560 or newer](https://github.com/twinbasic/twinbasic/releases) (Note: The manifest specifies requireAdministrator so running the built exe from the IDE will fail if tB is not also running as admin.)\
 -(Included in project file) Windows Development Library for twinBASIC v8.3.428 or newer.
 Note: To run from the IDE, the project must be built, and built again after any compiler restart. This is due to resource icons only being available from the compiled exe; the app loads them from the exe when running from the IDE.
 
@@ -37,7 +46,7 @@ Extra:
 
 **Flush system file cache:** Clears files being held in memory for fast access.
 
-### Command line and Jump list
+### Command line, Jump list, and System Tray
 
 In addition to the GUI, the above commands can be silently run without opening the app GUI by using the following command line switches:
 
@@ -51,9 +60,14 @@ In addition to the GUI, the above commands can be silently run without opening t
 
 **Note:** Currently, only one command at a time is supported.
 
-Further, on Windows 7 and above, the taskbar icon has a jump list to quickly access commands:
+On Windows 7 and above, the taskbar icon has a jump list to quickly access commands:
 
 ![image](https://github.com/fafalone/MemListMgr/assets/7834493/e7959ccf-679c-44f2-bbae-32f6b8831de5)
+
+On Windows Vista and above, there's an option to minimize to the system tray instead. Left-clicking brings back the main GUI, and right clicking allows access to the commands and exit through a popup menu:
+
+![image](https://github.com/fafalone/MemListMgr/assets/7834493/7779d4c8-c82a-4cea-b3f2-327a48dda285)
+
 
 ### How it works
 
