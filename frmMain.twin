@@ -4,7 +4,7 @@
 Class frmMain
 ' ***********************************************************************
 ' *                                                                     *
-' * Memory List Manager Version 2.0                                     *
+' * Memory List Manager Version 2.0.2                                   *
 ' * GUI Form                                                            *
 ' *                                                                     *
 ' * See modMemListMgr.twin for full details.                            *
@@ -461,7 +461,6 @@ Class frmMain
         Next
         SaveSetting App.Title, "Config0", "NotifyGuid", GUIDToString(tNIGuid)
         SaveSetting App.Title, "Config0", "ImagePath", GetExePath()
-        MsgBox "SaveGuid " & GUIDToString(tNIGuid)
     End Sub
     Private Sub LoadSavedSettings()
         If GetSetting(App.Title, "Config0", "MinimizeToTray", "0") = "0" Then

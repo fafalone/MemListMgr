@@ -1,6 +1,6 @@
 /* ********************************************************************
 *                                                                     *
-* Memory List Manager Version v2.0                                    *
+* Memory List Manager Version v2.0.2                                  *
 * (Main module)                                                       *
 * A simple tool to free standby memory and flush caches.              *
 *                                                                     *
@@ -35,6 +35,9 @@
 * Project home page: https://github.com/fafalone/MemListMgr           *
 *                                                                     *
 * Changelog                                                           *
+*   Version 2.0.2 (21 Jun 2024)                                       *
+*     - Bug fix, debug MsgBox on exit still enabled. Built with new   *
+*          version info fix.                                          *
 *   Version 2.0 (21 Jun 2024)                                         *
 *     -Added graphical Memory Bar to visualize modified/standby usage *
 *        Can change colors, double click key (small circle) to set    *
