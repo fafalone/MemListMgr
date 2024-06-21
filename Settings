@@ -1,4 +1,5 @@
 {
+	"compiler.includeStackSymbols": true,
 	"configuration.inherits": "Defaults",
 	"project.appTitle": "MemoryListManager",
 	"project.buildPath": "${SourcePath}\\${ProjectName}_${Architecture}.${FileExtension}",
@@ -7,7 +8,8 @@
 	"project.dllRuntimeBinding": false,
 	"project.exportPathIsV2": true,
 	"project.forceDpiAwarenessAtStartup": "NONE",
-	"project.id": "{749F1106-B091-48D3-92B7-DEA6EB2801FE}",
+	"project.id": "{749F1107-B091-48D3-92B7-DEA6EB2801FE}",
+	"project.largeAddressAware": true,
 	"project.licence": "MIT",
 	"project.name": "MemListMgr",
 	"project.optionExplicit": true,
@@ -59,19 +61,20 @@
 	"project.startupObject": "Sub Main",
 	"project.targetOsVersion": 327681,
 	"project.versionAutoIncrement": "Build",
-	"project.versionBuild": 32,
+	"project.versionBuild": 83,
 	"project.versionCompanyName": "JAJ Productions",
 	"project.versionFileDescription": "Memory List Manager",
 	"project.versionLegalCopyright": "(c) 2024",
-	"project.versionMajor": 1,
-	"project.versionMinor": 2,
+	"project.versionMajor": 2,
+	"project.versionMinor": 0,
 	"project.versionProductName": "MemoryListManager",
 	"project.versionRevision": 0,
 	"project.warnings": {
 		"errors": [],
 		"hints": [],
 		"ignored": [],
-		"info": []
+		"info": [],
+		"warnings": []
 	},
 	"runtime.useUnicodeStandardLibrary": true
 }
