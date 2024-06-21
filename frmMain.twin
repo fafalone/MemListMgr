@@ -4,7 +4,7 @@
 Class frmMain
 ' ***********************************************************************
 ' *                                                                     *
-' * Memory List Manager Version 1.2                                     *
+' * Memory List Manager Version 2.0                                     *
 ' * GUI Form                                                            *
 ' *                                                                     *
 ' * See modMemListMgr.twin for full details.                            *
@@ -21,8 +21,10 @@ Class frmMain
     
     Private Const PAGE_SIZE As LongLong = &H1000
     
+    Private Const szWelcome = "Welcome to Memory List Manager v2.0"
+    
     Private Const szHelpTitle = "Memory List Manager"
-    Private Const szHelpHeader = "Memory List Manager v1.2"
+    Private Const szHelpHeader = "Memory List Manager v2.0"
     Private Const szHelpMessage = "This is a small utility to free up memory held in standby and in caches " & _
                                   "by Jon Johnson based code from SystemInformer. Developed in twinBASIC. " & vbcrlf & vbcrlf & _
                                   "For the readme, filing bug reports, original source, and more utilities, visit the project's GitHub repository:" & vbcrlf & _
@@ -30,16 +32,71 @@ Class frmMain
     Private Const szHelpFooter = "Copyright ©2024 Jon Johnson. Licensed under the MIT license. See code or repository for more  information."
     Private Const szHelpIconRes = "101"
     
-    Private cxyIcon As Long, cxyIconBtn As Long
+    Private Const szPrivError = "Insufficient privileges to execute memory operation."
+    Private Const szBadVersion = "This command is not supported on your version of Windows."
+    Private Const szUnknown = "Unknown"
+    Private Const szBadOS = "This program requires Windows XP or later."
+    Private Const szWow64Warn = "It's strongly recommended you run the 64bit version of this app on 64bit Windows. Continue anyway?"
+    Private Const szCSBOk = "Successfully cleared standby memory."
+    Private Const szCSBErr = "Failed to clear standby memory, "
+    Private Const szCSBLPOk = "Successfully cleared low priority standby memory."
+    Private Const szCSBLPErr = "Failed to clear low priority standby memory, "
+    Private Const szFMOk = "Successfully flushed modified pages."
+    Private Const szFMErr = "Failed to flush modified pages, "
+    Private Const szWSOk = "Successfully emptied working sets."
+    Private Const szWSErr = "Failed to empty working sets, "
+    Private Const szCombined = "Combined %1 (%2 pages)"
+    Private Const szCmbErr = "Failed to combine pages, "
+    Private Const szRegOk = "Successfully flushed registry cache."
+    Private Const szRegErr = "Failed to flush registry cache, "
+    Private Const szFileOk = "Successully flushed %1 in system file cache."
+    Private Const szFileErr = "Failed to flush system file cache, "
+    Private Const szBadAR = "Auto-refresh interval must be greater than zero."
+    Private Const szAOOk = "Successfully set Auto-apply options."
+    Private Const szAOErr = "Invalid Auto-apply options. At least one memory type, percent 1-100, and interval > 1 required."
+    Private Const szAOExec = "Automatically optimized memory at %d."
+    Private Const szAAOk = "Successfully completed auto-optimize routine."
+    Private Const szAAErr = "Failed to complete auto-optimize routine, "
+    Private Const szNA = "N/A"
+    
+    Private cxyIcon As Long, cxyIconBtn As Long, cxyIconTray As Long
     Private m_ScaleX As Single, m_ScaleY As Single
+    Private mDPI As Long
+    Private mSubclass As Boolean
+    Private mInTray As Boolean
     
+    Private mAOPct As Long
+    Private mAOInt As Long
+    Private mAOUseM As Boolean
+    Private mAOUseS As Boolean
+    
+    Private Const WM_MLMNOTIFYICON = WM_USER + &H123
+    Private tNIGuid As UUID
+    
+    Private clrCustom(15) As Long
 
-    
+    Private Sub SetStatus(szMessage As String)
+        txtStatus.Text = szMessage
+        txtStatus.ToolTipText = szMessage
+    End Sub
     Private Sub OnLoad() Handles Form.Load
         If NTDDI_VERSION < NTDDI_WINXP Then
-            MsgBox "This program requires Windows XP or later.", vbCritical + vbOKOnly, App.Title
+            MsgBox szBadOS, vbCritical + vbOKOnly, App.Title
             End
         End If
+        If NTDDI_VERSION < NTDDI_VISTA Then
+            'No V4 notification icon for tray; disable
+            Label32.Visible = False
+            optMin(0).Visible = False
+            optMin(1).Visible = False
+        End If
+        
+        LoadSavedSettings
+        
+        cmdAuto.ToolTipText = szAutoOptTT
+        SetStatus szWelcome
+        
+        'SetStatus "Using notify GUID " & GUIDToString(tNIGuid)
         
         'Temp fix for tB bug, add min button back:
         Dim dwStyle As WindowStyles = CLng(GetWindowLong(Me.hWnd, GWL_STYLE))
@@ -50,13 +107,14 @@ Class frmMain
         Dim bWow64 As BOOL
         IsWow64Process GetCurrentProcess(), bWow64
         If bWow64 Then
-            Dim r As VbMsgBoxResult = MsgBox("It's strongly recommended you run the 64bit version of this app on 64bit Windows. Continue anyway?", vbExclamation + vbYesNo, App.Title)
+            Dim r As VbMsgBoxResult = MsgBox(szWow64Warn, vbExclamation + vbYesNo, App.Title)
             If r = vbNo Then End
         End If
        
         Dim hDC As LongPtr
         hDC = GetDC(0&)
-        m_ScaleX = GetDeviceCaps(hDC, LOGPIXELSX) / 96
+        mDPI = GetDeviceCaps(hDC, LOGPIXELSX)
+        m_ScaleX = mDPI / 96
         m_ScaleY = GetDeviceCaps(hDC, LOGPIXELSY) / 96
         Select Case m_ScaleX
             Case Is <= 1: cxyIcon = 24
@@ -70,10 +128,14 @@ Class frmMain
         
         UpdateMemoryInfo
         
+        If mSubclass = False Then
+            Subclass2 Me.hWnd, AddressOf F1WndProc, Me.hWnd
+            mSubclass = True
+        End If
     End Sub
     
-    Private Sub OnSetAutoRefresh() Handles Check1.Click
-        If Check1.Value = vbChecked Then
+    Private Sub OnSetAutoRefresh() Handles chkAutoRefresh.Click
+        If chkAutoRefresh.Value = vbChecked Then
             Timer1.Interval = CLng(Text1.Text) * 1000
             Timer1.Enabled = True
         Else
@@ -82,114 +144,160 @@ Class frmMain
     End Sub
     
     Private Sub OnUpdateInterval() Handles Text1.Change
-        Timer1.Interval = CLng(Text1.Text) * 1000
+        Dim lInt As Long = CLng(Text1.Text) * 1000&
+        If lInt > 0 Then
+            Timer1.Interval = lInt
+        Else
+            Beep
+            SetStatus szBadAR
+        End If
     End Sub
     
     Private Sub OnUpdateInfo() Handles Timer1.Timer, cmdUpdate.Click
         UpdateMemoryInfo
     End Sub
     
-    
-    Private Sub OnEmptyLPStandby() Handles cmdEmptyLPStandby.Click
-        Dim status As NTSTATUS = ClearStandby(True)
-        If NT_SUCCESS(status) Then
-            txtStatus.Text = "Successfully cleared low priority standby memory."
-            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
-        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
-            Beep
-            txtStatus.Text = "Insufficient privileges to execute memory operation."
-        ElseIf status = STATUS_INVALID_INFO_CLASS Then
-            Beep
-            txtStatus.Text = "This command is not supported on your version of Windows."
-        Else
-            Beep
-            txtStatus.Text = "Failed to clear low priority standby memory, " & GetNtErrorString(status)
+    Private Sub OnCheckAutoApply() Handles Timer2.Timer
+        Debug.Print "OnCheckAutoApply"
+        Dim status As NTSTATUS
+        Dim cbRet As Long
+        Dim sbi As SYSTEM_BASIC_INFORMATION
+        Dim spi As SYSTEM_PERFORMANCE_INFORMATION
+        status = NtQuerySystemInformation(SystemBasicInformation, sbi, LenB(Of SYSTEM_BASIC_INFORMATION), cbRet)
+        status = NtQuerySystemInformation(SystemPerformanceInformation, spi, LenB(Of SYSTEM_PERFORMANCE_INFORMATION), cbRet)
+        Dim sml As SYSTEM_MEMORY_LIST_INFORMATION
+        status = NtQuerySystemInformation(SystemMemoryListInformation, sml, LenB(Of SYSTEM_MEMORY_LIST_INFORMATION), cbRet)
+        Dim i As Long
+        Dim llST As LongLong
+        For i = 0 To 7
+            llST += sml.PageCountByPriority(i)
+        Next
+        
+        Dim llTot As LongLong
+        If mAOUseM Then
+            llTot = sml.ModifiedPageCount
         End If
+        If mAOUseS Then
+            llTot += llST
+        End If
+        ' (sbi.NumberOfPhysicalPages - spi.AvailablePages), sml.ModifiedPageCount , llST , sml.FreePageCount
+        Dim llGT As LongLong = (sbi.NumberOfPhysicalPages - spi.AvailablePages) + sml.ModifiedPageCount + llST + sml.FreePageCount
+        Dim llNotUsed As LongLong
+        llNotUsed = llGT - (sbi.NumberOfPhysicalPages - spi.AvailablePages)
+        
+        Dim nPct As Long = CLng(Round((CSng(llTot) / CSng(llNotUsed)) * 100, 0))
+        ' Debug.Print "AutoApply::llST=" & llST & ", llTot=" & llTot & ", llNotUsed=" & llNotUsed
+        ' Debug.Print "AutoApply::nPct=" & nPct & ",target=" & mAOPct
+        If nPct > mAOPct Then
+            status = AutoOptimize()
+            SetStatus Replace$(szAOExec, "%d", Format$(Now, "yyyy-mm-dd Hh:nn:Ss"))
+        End If
+
     End Sub
     
     Private Sub OnEmptyStandby() Handles cmdEmptyStandby.Click
         Dim status As NTSTATUS = ClearStandby(False)
         If NT_SUCCESS(status) Then
-            txtStatus.Text = "Successfully cleared standby memory."
-            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+            SetStatus szCSBOk
+            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
-            txtStatus.Text = "Insufficient privileges to execute memory operation."
+            SetStatus szPrivError
         ElseIf status = STATUS_INVALID_INFO_CLASS Then
             Beep
-            txtStatus.Text = "This command is not supported on your version of Windows."
+            SetStatus szBadVersion
         Else
             Beep
-            txtStatus.Text = "Failed to clear standby memory, " & GetNtErrorString(status)
+            SetStatus szCSBErr & GetNtErrorString(status)
         End If
     End Sub
+    
+    Private Sub OnEmptyLPStandby() Handles cmdEmptyLPStandby.Click
+        Dim status As NTSTATUS = ClearStandby(True)
+        If NT_SUCCESS(status) Then
+            SetStatus szCSBLPOk
+            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            SetStatus szPrivError
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            SetStatus szBadVersion
+        Else
+            Beep
+            SetStatus szCSBLPErr & GetNtErrorString(status)
+        End If
+    End Sub
+    
     
     Private Sub OnFlushModified() Handles cmdFlushModified.Click
         Dim status As NTSTATUS = FlushModified()
         If NT_SUCCESS(status) Then
-            txtStatus.Text = "Successfully flushed modified pages."
-            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+            SetStatus szFMOk
+            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
-            txtStatus.Text = "Insufficient privileges to execute memory operation."
+            SetStatus szPrivError
         ElseIf status = STATUS_INVALID_INFO_CLASS Then
             Beep
-            txtStatus.Text = "This command is not supported on your version of Windows."
+            SetStatus szBadVersion
         Else
             Beep
-            txtStatus.Text = "Failed to flush modified pages, " & GetNtErrorString(status)
+            SetStatus szFMErr & GetNtErrorString(status)
         End If
         End Sub
     
     Private Sub OnEmptyWorkingSets() Handles cmdEmptyWS.Click
         Dim status As NTSTATUS = EmptyWorkingSets()
         If NT_SUCCESS(status) Then
-            txtStatus.Text = "Successfully emptied working sets."
-            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+            SetStatus szWSOk
+            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
-            txtStatus.Text = "Insufficient privileges to execute memory operation."
+            SetStatus szPrivError
         ElseIf status = STATUS_INVALID_INFO_CLASS Then
             Beep
-            txtStatus.Text = "This command is not supported on your version of Windows."
+            SetStatus szBadVersion
         Else
             Beep
-            txtStatus.Text = "Failed to empty working sets, " & GetNtErrorString(status)
+            SetStatus szWSErr & GetNtErrorString(status)
         End If
     End Sub
     
     Private Sub OnCombinePages() Handles cmdCombine.Click
         Dim llCb As LongLong
         Dim status As NTSTATUS = CombinePages(llCb)
+        Dim szTmp As String = szCombined
         If NT_SUCCESS(status) Then
-            txtStatus.Text = "Combined " & FormatSizeStd(llCb * PAGE_SIZE) & " (" & llCb & " pages)"
-            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+            szTmp = Replace$(szTmp, "%1", FormatSizeStd(llCb * PAGE_SIZE))
+            SetStatus Replace$(szTmp, "%2", CStr(llCb))
+            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
-            txtStatus.Text = "Insufficient privileges to execute memory operation."
+            SetStatus szPrivError
         ElseIf status = STATUS_INVALID_INFO_CLASS Then
             Beep
-            txtStatus.Text = "This command is not supported on your version of Windows."
+            SetStatus szBadVersion
         Else
             Beep
-            txtStatus.Text = "Failed to combine pages, " & GetNtErrorString(status)
+            SetStatus szCmbErr & GetNtErrorString(status)
         End If
     End Sub
     
     Private Sub OnFlushRegCache() Handles cmdFlushRegCache.Click
         Dim status As NTSTATUS = FlushRegistryCache()
         If NT_SUCCESS(status) Then
-            txtStatus.Text = "Successfully flushed registry cache."
-            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+            SetStatus szRegOk
+            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
-            txtStatus.Text = "Insufficient privileges to execute memory operation."
+            SetStatus szPrivError
         ElseIf status = STATUS_INVALID_INFO_CLASS Then
             Beep
-            txtStatus.Text = "This command is not supported on your version of Windows."
+            SetStatus szBadVersion
         Else
             Beep
-            txtStatus.Text = "Failed to flush registry cache, " & GetNtErrorString(status)
+            SetStatus szRegErr & GetNtErrorString(status)
         End If
     End Sub
     
@@ -197,26 +305,126 @@ Class frmMain
         Dim llCb As LongLong
         Dim status As NTSTATUS = FlushFileCache(llCb)
         If NT_SUCCESS(status) Then
-            txtStatus.Text = "Successully flushed " & FormatSizeStd(llCb) & " in system file cache."
-            If Check1.Value = vbUnchecked Then UpdateMemoryInfo()
+            SetStatus Replace$(szFileOk, "%1", FormatSizeStd(llCb))
+            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
-            txtStatus.Text = "Insufficient privileges to execute memory operation."
+            SetStatus szPrivError
         ElseIf status = STATUS_INVALID_INFO_CLASS Then
             Beep
-            txtStatus.Text = "This command is not supported on your version of Windows."
+            SetStatus szBadVersion
         Else
             Beep
-            txtStatus.Text = "Failed to flush system file cache, " & GetNtErrorString(status)
+            SetStatus szFileErr & GetNtErrorString(status)
         End If
     End Sub
     
+    Private Sub OnAutoOptimize() Handles cmdAuto.Click
+        Dim status As NTSTATUS = AutoOptimize()
+        If NT_SUCCESS(status) Then
+            SetStatus szAAOk
+            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+        ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
+            Beep
+            SetStatus szPrivError
+        ElseIf status = STATUS_INVALID_INFO_CLASS Then
+            Beep
+            SetStatus szBadVersion
+        Else
+            Beep
+            SetStatus szAAErr & GetNtErrorString(status)
+        End If
+    End Sub
+    
+    Private Sub OnAutoApplyOptsSettings() Handles cmdAutoOpts.Click
+        SetParent pbAutoOpts.hWnd, Me.hWnd
+        pbAutoOpts.Visible = True
+        Dim dwFrEx As Long
+        dwFrEx = CLng(GetWindowLong(pbAutoOpts.hWnd, GWL_EXSTYLE))
+        dwFrEx = dwFrEx Or WS_EX_DLGMODALFRAME
+        SetWindowLong pbAutoOpts.hWnd, GWL_EXSTYLE, dwFrEx
+        'PostLog "OptionsLeft=" & Frame2.Left
+        SetWindowPos pbAutoOpts.hWnd, 0&, cmdAuto.Left, cmdAuto.Top + cmdAuto.Height + 4, 0&, 0&, SWP_NOSIZE Or SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED
+        chkAOUseM.Value = If(mAOUseM, vbChecked, vbUnchecked)
+        chkAOUseS.Value = If(mAOUseS, vbChecked, vbUnchecked)
+        txtAOPct.Text = CStr(mAOPct)
+        txtAOTimer.Text = CStr(mAOInt)
+    End Sub
+ 
+    
+    Private Sub lblOpts_MouseMove(Button As Integer, Shift As Integer, X As Single, Y As Single) Handles lblOpts.MouseMove
+        If Button = 1 Then
+            Call ReleaseCapture
+            Call SendMessage(pbAutoOpts.hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0&)
+        End If
+    End Sub
+ 
+    
+    Private Sub pbAutoOpts_MouseMove(Button As Integer, Shift As Integer, X As Single, Y As Single) Handles pbAutoOpts.MouseMove
+        If Button = 1 Then
+            Call ReleaseCapture
+            Call SendMessage(pbAutoOpts.hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0&)
+        End If
+    End Sub
+    
+    Private Sub cmdAutoOptOk_Click() Handles cmdAutoOptOk.Click
+        If ValidateAASettings() Then
+            mAOUseM = If(chkAOUseM.Value = vbChecked, True, False)
+            mAOUseS = If(chkAOUseS.Value = vbChecked, True, False)
+            mAOInt = CLng(txtAOTimer.Text)
+            mAOPct = CLng(txtAOPct.Text)
+            pbAutoOpts.Visible = False
+            SetStatus szAOOk
+        Else
+            SetStatus szAOErr
+        End If
+        End Sub
+    Private Function ValidateAASettings() As Boolean
+        If (chkAOUseM.Value = vbUnchecked) And (chkAOUseS.Value = vbUnchecked) Then
+            Return False
+        End If
+        If (CLng(txtAOPct.Text) < 1) Or (CLng(txtAOPct.Text) > 100) Then
+            Return False
+        End If
+        If CLng(txtAOTimer.Text) < 1 Then Return False
+        Return True
+    End Function
+    Private Sub cmdAutoOptCancel_Click() Handles cmdAutoOptCancel.Click
+        pbAutoOpts.Visible = False
+    End Sub
+    
+    Private Sub OnEnableAutoApply() Handles chkAAO.Click
+        If chkAAO.Value = vbChecked Then
+            Timer2.Interval = mAOInt * 1000
+            Timer2.Enabled = True
+        Else
+            Timer2.Enabled = False
+        End If
+    End Sub
     
     Private Sub OnAbout() Handles cmdAbout.Click
         ShowAbout
     End Sub
+    
+    Private Sub picKeyU_DblClick() Handles picKeyU.DblClick
+        SetKeyColor 0
+    End Sub
+    Private Sub picKeyM_DblClick() Handles picKeyM.DblClick
+        SetKeyColor 1
+    End Sub
+    Private Sub picKeyS_DblClick() Handles picKeyS.DblClick
+        SetKeyColor 2
+    End Sub
+    Private Sub picKeyF_DblClick() Handles picKeyF.DblClick
+        SetKeyColor 3
+    End Sub
+    
     Private Sub OnExit() Handles cmdExit.Click
         Unload Me
+    End Sub
+    Private Sub OnUnload(Cancel As Integer) Handles Form.Unload
+        SaveCurrentSettings
+        UnSubclass2 Me.hWnd, AddressOf F1WndProc, Me.hWnd
     End Sub
     
     Private Sub ShowAbout()
@@ -236,6 +444,368 @@ Class frmMain
         
         Dim lRes As Long = TaskDialogIndirect(tdc)
     End Sub
+    
+    Private Sub SaveCurrentSettings()
+        SaveSetting App.Title, "Config0", "MinimizeToTray", IIf(optMin(0).Value = True, "0", "1")
+        SaveSetting App.Title, "Config0", "AAUseModified", IIf(mAOUseM, "1", "0")
+        SaveSetting App.Title, "Config0", "AAUseStandby", IIf(mAOUseS, "1", "0")
+        SaveSetting App.Title, "Config0", "AAInterval", CStr(mAOInt)
+        SaveSetting App.Title, "Config0", "AATargetPercent", CStr(mAOPct)
+        SaveSetting App.Title, "Config0", "ColorKeyU", CStr(shpKeyU.FillColor)
+        SaveSetting App.Title, "Config0", "ColorKeyM", CStr(shpKeyM.FillColor)
+        SaveSetting App.Title, "Config0", "ColorKeyS", CStr(shpKeyS.FillColor)
+        SaveSetting App.Title, "Config0", "ColorKeyF", CStr(shpKeyF.FillColor)
+        Dim i As Long
+        For i = 4 To 15
+            SaveSetting App.Title, "Config0", "CustomColor" & i, clrCustom(i)
+        Next
+        SaveSetting App.Title, "Config0", "NotifyGuid", GUIDToString(tNIGuid)
+        SaveSetting App.Title, "Config0", "ImagePath", GetExePath()
+        MsgBox "SaveGuid " & GUIDToString(tNIGuid)
+    End Sub
+    Private Sub LoadSavedSettings()
+        If GetSetting(App.Title, "Config0", "MinimizeToTray", "0") = "0" Then
+            optMin(0).Value = True
+            optMin(1).Value = False
+        Else
+            optMin(1).Value = True
+            optMin(0).Value = False
+        End If
+        mAOUseM = IIf(GetSetting(App.Title, "Config0", "AAUseModified", "1") = "1", True, False)
+        mAOUseS = IIf(GetSetting(App.Title, "Config0", "AAUseStandby", "1") = "1", True, False)
+        mAOInt = CLng(GetSetting(App.Title, "Config0", "AAInterval", "600"))
+        mAOPct = CLng(GetSetting(App.Title, "Config0", "AATargetPercent", "75"))
+        If ValidateAASettings() = False Then 'Bad setting(s), revert to defaults
+            mAOUseM = True
+            mAOUseS = True
+            mAOInt = 600
+            mAOPct = 75
+        End If
+        shpKeyU.FillColor = CLng(GetSetting(App.Title, "Config0", "ColorKeyU", CStr(&H3891E6)))
+        shpKeyM.FillColor = CLng(GetSetting(App.Title, "Config0", "ColorKeyM", CStr(&H94530B)))
+        shpKeyS.FillColor = CLng(GetSetting(App.Title, "Config0", "ColorKeyS", CStr(&HDCA86F)))
+        shpKeyF.FillColor = CLng(GetSetting(App.Title, "Config0", "ColorKeyF", CStr(&HF3E2CF)))
+        shpUsed.FillColor = shpKeyU.FillColor
+        shpModified.FillColor = shpKeyM.FillColor
+        shpStandby.FillColor = shpKeyS.FillColor
+        shpFree.FillColor = shpKeyF.FillColor
+        Dim i As Long
+        For i = 4 To 15
+            clrCustom(i) = CLng(GetSetting(App.Title, "Config0", "CustomColor" & i, CStr(&HFFFFFF)))
+        Next
+        Dim sPathReg As String = GetSetting(App.Title, "Config0", "ImagePath", "")
+        Dim sPathExe As String = GetExePath()
+        Dim sGuid As String = GetSetting(App.Title, "Config0", "NotifyGuid", "")
+        If sPathReg = sPathExe Then
+            If sGuid <> "" Then
+                If IIDFromString(sGuid, tNIGuid) <> S_OK Then
+                    CoCreateGuid tNIGuid
+                End If
+            End If
+        Else
+            'Our executable has moved or been renamed; we need to generate a new GUID for the notify icon
+            CoCreateGuid tNIGuid
+        End If
+    End Sub
+    Private Function GetExePath() As String
+        Dim sPath As String = String$(MAX_PATH, 0)
+        Dim lRet As Long = GetModuleFileName(0, sPath, MAX_PATH)
+        If lRet Then Return Left$(sPath, lRet)
+    End Function
+    Private Function GUIDToString(tg As UUID, Optional bBrack As Boolean = True) As String
+    'StringFromGUID2 never works, even "working" code from vbaccelerator AND MSDN
+    GUIDToString = Right$("00000000" & Hex$(tg.Data1), 8) & "-" & Right$("0000" & Hex$(tg.Data2), 4) & "-" & Right$("0000" & Hex$(tg.Data3), 4) & _
+    "-" & Right$("00" & Hex$(CLng(tg.Data4(0))), 2) & Right$("00" & Hex$(CLng(tg.Data4(1))), 2) & "-" & Right$("00" & Hex$(CLng(tg.Data4(2))), 2) & _
+    Right$("00" & Hex$(CLng(tg.Data4(3))), 2) & Right$("00" & Hex$(CLng(tg.Data4(4))), 2) & Right$("00" & Hex$(CLng(tg.Data4(5))), 2) & _
+    Right$("00" & Hex$(CLng(tg.Data4(6))), 2) & Right$("00" & Hex$(CLng(tg.Data4(7))), 2)
+    If bBrack Then GUIDToString = "{" & GUIDToString & "}"
+    End Function
+    
+    Private Sub SetShowInTaskbar(hWnd As LongPtr, bShow As Boolean)
+        Debug.Print "ShowInTaskbar " & bShow
+        Dim lStyle As Long
+        ShowWindow hWnd, SW_HIDE
+        lStyle = CLng(GetWindowLong(hWnd, GWL_EXSTYLE))
+        If bShow = False Then
+            If lStyle And WS_EX_APPWINDOW Then
+                lStyle = lStyle - WS_EX_APPWINDOW
+            End If
+        Else
+            lStyle = lStyle Or WS_EX_APPWINDOW
+        End If
+        SetWindowLong hWnd, GWL_EXSTYLE, lStyle
+        'App.TaskVisible = bShow
+        ShowWindow hWnd, SW_NORMAL
+    End Sub
+    
+    Private Sub ShowTrayContextMenu(hwndPar As LongPtr)
+        On Error GoTo e0
+        Debug.Print "ShowTrayContextMenu()"
+        Dim hMenu As LongPtr = CreatePopupMenu()
+        Dim mii As MENUITEMINFOW
+        Dim mScaleTray As Single = GetTaskbarDPI() / 96!
+        Select Case mScaleTray
+            Case Is <= 1: cxyIconTray = 16
+            Case Is <= 1.25: cxyIconTray = 20
+            Case Is <= 1.5: cxyIconTray = 24
+            Case Else: cxyIconTray = 32
+        End Select
+        
+        Dim hIcoAuto As LongPtr, hbmAuto As LongPtr
+        hIcoAuto = LoadImage(hMod, ByVal StrPtr(IDI_AUTO), IMAGE_ICON, cxyIconTray, cxyIconTray, LR_DEFAULTCOLOR Or LR_SHARED)
+        hbmAuto = HBitmapFromHIcon(hIcoAuto, cxyIconTray, cxyIconTray)
+        With mii
+            .cbSize = LenB(Of MENUITEMINFOW)
+            .fMask = MIIM_ID Or MIIM_STRING Or MIIM_BITMAP
+            .cch = Len(szAutoOpt)
+            .dwTypeData = StrPtr(szAutoOpt)
+            .wID = IDM_AUTOOPT
+            .hbmpItem = hbmAuto
+        End With
+        InsertMenuItemW hMenu, 0, CTRUE, mii
+        
+        With mii
+            .fMask = MIIM_TYPE
+            .fType = MFT_SEPARATOR
+            InsertMenuItemW hMenu, 1, CTRUE, mii
+        End With
+        
+        Dim hIcoCS As LongPtr, hbmCS As LongPtr
+        hIcoCS = LoadImage(hMod, ByVal StrPtr(IDI_MAIN), IMAGE_ICON, cxyIconTray, cxyIconTray, LR_DEFAULTCOLOR Or LR_SHARED)
+        hbmCS = HBitmapFromHIcon(hIcoCS, cxyIconTray, cxyIconTray)
+        With mii
+            .cbSize = LenB(Of MENUITEMINFOW)
+            .fMask = MIIM_ID Or MIIM_STRING Or MIIM_BITMAP
+            .cch = Len(szClearStd)
+            .dwTypeData = StrPtr(szClearStd)
+            .wID = IDM_CLEARSTD
+            .hbmpItem = hbmCS
+        End With
+        InsertMenuItemW hMenu, 2, CTRUE, mii
+        
+        With mii
+            .cch = Len(szClearStdLP)
+            .dwTypeData = StrPtr(szClearStdLP)
+            .wID = IDM_CLEARSTDLP
+            .hbmpItem = hbmCS
+        End With
+        InsertMenuItemW hMenu, 3, CTRUE, mii
+ 
+        With mii
+            .cch = Len(szFlushMod)
+            .dwTypeData = StrPtr(szFlushMod)
+            .wID = IDM_FLUSHMOD
+            .hbmpItem = hbmCS
+        End With
+        InsertMenuItemW hMenu, 4, CTRUE, mii
+        
+        With mii
+            .fMask = MIIM_TYPE
+            .fType = MFT_SEPARATOR
+            InsertMenuItemW hMenu, 5, CTRUE, mii
+        End With
+        
+        Dim hIcoWS As LongPtr, hbmWS As LongPtr
+        hIcoWS = LoadImage(hMod, ByVal StrPtr(IDI_WS), IMAGE_ICON, cxyIconTray, cxyIconTray, LR_DEFAULTCOLOR Or LR_SHARED)
+        hbmWS = HBitmapFromHIcon(hIcoWS, cxyIconTray, cxyIconTray)
+        With mii
+            .cbSize = LenB(Of MENUITEMINFOW)
+            .fMask = MIIM_ID Or MIIM_STRING Or MIIM_BITMAP
+            .cch = Len(szEmptyWS)
+            .dwTypeData = StrPtr(szEmptyWS)
+            .wID = IDM_EMPTYWS
+            .hbmpItem = hbmWS
+        End With
+        InsertMenuItemW hMenu, 6, CTRUE, mii
+        
+        Dim hIcoCmb As LongPtr, hbmCmb As LongPtr
+        hIcoCmb = LoadImage(hMod, ByVal StrPtr(IDI_CMB), IMAGE_ICON, cxyIconTray, cxyIconTray, LR_DEFAULTCOLOR Or LR_SHARED)
+        hbmCmb = HBitmapFromHIcon(hIcoCmb, cxyIconTray, cxyIconTray)
+        With mii
+            .cbSize = LenB(Of MENUITEMINFOW)
+            .fMask = MIIM_ID Or MIIM_STRING Or MIIM_BITMAP
+            .cch = Len(szCmb)
+            .dwTypeData = StrPtr(szCmb)
+            .wID = IDM_COMBINE
+            .hbmpItem = hbmCmb
+        End With
+        InsertMenuItemW hMenu, 7, CTRUE, mii
+        
+        Dim hIcoFR As LongPtr, hbmFR As LongPtr
+        hIcoFR = LoadImage(hMod, ByVal StrPtr(IDI_REG), IMAGE_ICON, cxyIconTray, cxyIconTray, LR_DEFAULTCOLOR Or LR_SHARED)
+        hbmFR = HBitmapFromHIcon(hIcoFR, cxyIconTray, cxyIconTray)
+        With mii
+            .cbSize = LenB(Of MENUITEMINFOW)
+            .fMask = MIIM_ID Or MIIM_STRING Or MIIM_BITMAP
+            .cch = Len(szFlushReg)
+            .dwTypeData = StrPtr(szFlushReg)
+            .wID = IDM_FLUSHREG
+            .hbmpItem = hbmFR
+        End With
+        InsertMenuItemW hMenu, 8, CTRUE, mii
+        
+        Dim hIcoFF As LongPtr, hbmFF As LongPtr
+        hIcoFF = LoadImage(hMod, ByVal StrPtr(IDI_DISK), IMAGE_ICON, cxyIconTray, cxyIconTray, LR_DEFAULTCOLOR Or LR_SHARED)
+        hbmFF = HBitmapFromHIcon(hIcoFF, cxyIconTray, cxyIconTray)
+        With mii
+            .cbSize = LenB(Of MENUITEMINFOW)
+            .fMask = MIIM_ID Or MIIM_STRING Or MIIM_BITMAP
+            .cch = Len(szFlushFiles)
+            .dwTypeData = StrPtr(szFlushFiles)
+            .wID = IDM_FLUSHFILES
+            .hbmpItem = hbmFF
+        End With
+        InsertMenuItemW hMenu, 9, CTRUE, mii
+        
+        With mii
+            .fMask = MIIM_TYPE
+            .fType = MFT_SEPARATOR
+            InsertMenuItemW hMenu, 10, CTRUE, mii
+        End With
+        
+        With mii
+            .cbSize = LenB(Of MENUITEMINFOW)
+            .fMask = MIIM_ID Or MIIM_STRING Or MIIM_BITMAP Or MIIM_STATE
+            .cch = Len(szRestore)
+            .dwTypeData = StrPtr(szRestore)
+            .wID = IDM_RESTORE
+            .hbmpItem = hbmCS
+            .fState = MFS_DEFAULT
+        End With
+        InsertMenuItemW hMenu, 11, CTRUE, mii
+        
+        With mii
+            .fMask = MIIM_TYPE
+            .fType = MFT_SEPARATOR
+            InsertMenuItemW hMenu, 12, CTRUE, mii
+        End With
+        
+        With mii
+            .cbSize = LenB(Of MENUITEMINFOW)
+            .fMask = MIIM_ID Or MIIM_STRING
+            .cch = Len(szExit)
+            .dwTypeData = StrPtr(szExit)
+            .wID = IDM_EXIT
+            .hbmpItem = 0
+            .fState = 0
+        End With
+        InsertMenuItemW hMenu, 13, CTRUE, mii
+        
+        Dim pt As POINT
+        GetCursorPos pt
+        
+        Dim idCmd As Long = TrackPopupMenu(hMenu, TPM_LEFTBUTTON Or TPM_RIGHTBUTTON Or TPM_LEFTALIGN Or TPM_TOPALIGN Or TPM_VERTICAL Or TPM_VERPOSANIMATION Or TPM_RETURNCMD, pt.x, pt.y, 0, hwndPar, ByVal 0)
+    
+        DestroyIcon hIcoAuto: DeleteObject hbmAuto
+        DestroyIcon hIcoCS: DeleteObject hbmCS
+        DestroyIcon hIcoWS: DeleteObject hbmWS
+        DestroyIcon hIcoCmb: DeleteObject hbmCmb
+        DestroyIcon hIcoFR: DeleteObject hbmFR
+        DestroyIcon hIcoFF: DeleteObject hbmFF
+        
+        If idCmd Then
+            Dim status As NTSTATUS
+            Select Case idCmd
+                Case IDM_AUTOOPT: status = AutoOptimize()
+                Case IDM_CLEARSTD: status = ClearStandby(False)
+                Case IDM_CLEARSTDLP: status = ClearStandby(True)
+                Case IDM_FLUSHMOD: status = FlushModified()
+                Case IDM_EMPTYWS: status = EmptyWorkingSets()
+                Case IDM_COMBINE: status = CombinePages()
+                Case IDM_FLUSHREG: status = FlushRegistryCache()
+                Case IDM_FLUSHFILES: status = FlushFileCache()
+                Case IDM_RESTORE
+                    ShowWindow Me.hWnd, SW_RESTORE
+                    SetShowInTaskbar(Me.hWnd, True)
+                    RemoveTrayIcon()
+                Case IDM_EXIT
+                    RemoveTrayIcon()
+                    PostMessage Me.hWnd, WM_CLOSE, 0, ByVal 0
+            End Select
+        End If
+        
+        Exit Sub
+    e0:
+        Debug.Print "ShowTrayInContextMenu Error: " & Err.Number & ", " & Err.Description
+    End Sub
+    
+    Private Function SetKeyColor(idx As Long) As Boolean
+        Dim tClr As CHOOSECOLORW
+        Dim rgbDef As Long
+        Select Case idx
+            Case 0: rgbDef = WinColor(shpKeyU.FillColor)
+            Case 1: rgbDef = WinColor(shpKeyM.FillColor)
+            Case 2: rgbDef = WinColor(shpKeyS.FillColor)
+            Case 3: rgbDef = WinColor(shpKeyF.FillColor)
+        End Select
+        clrCustom(0) = WinColor(&H3891E6)
+        clrCustom(1) = WinColor(&H94530B)
+        clrCustom(2) = WinColor(&HDCA86F)
+        clrCustom(3) = WinColor(&HF3E2CF)
+        
+        tClr.lStructSize = LenB(Of CHOOSECOLORW)
+        tClr.hInstance = App.hInstance
+        tClr.hwndOwner = Me.hWnd
+        tClr.lpCustColors = VarPtr(clrCustom(0))
+        tClr.rgbResult = rgbDef
+        tClr.Flags = CC_ANYCOLOR Or CC_RGBINIT
+        
+        If ChooseColorW(tClr) Then
+            
+            Select Case idx
+                Case 0
+                    shpKeyU.FillColor = tClr.rgbResult
+                    shpUsed.FillColor = shpKeyU.FillColor
+                Case 1
+                    shpKeyM.FillColor = tClr.rgbResult
+                    shpModified.FillColor = shpKeyM.FillColor
+                Case 2
+                    shpKeyS.FillColor = tClr.rgbResult
+                    shpStandby.FillColor = shpKeyS.FillColor
+                Case 3
+                    shpKeyF.FillColor = tClr.rgbResult
+                    shpFree.FillColor = shpKeyF.FillColor
+            End Select
+        Else
+            Dim lErr As Long = CommDlgExtendedError()
+            Debug.Print "Color picker canceled/error, code=0x" & Hex$(lErr)
+        End If
+    End Function
+    
+    Private Function WinColor(ByVal Color As Long, Optional ByVal hPal As LongPtr) As Long
+    If OleTranslateColor(Color, hPal, WinColor) <> 0 Then WinColor = -1
+    End Function
+    
+    Private Function HBitmapFromHIcon(hIcon As LongPtr, cx As Long, cy As Long) As LongPtr
+    Dim hDC As LongPtr
+    Dim hBackDC As LongPtr
+    Dim hBitmap As LongPtr
+    Dim hBackSV As LongPtr
+    
+    hDC = GetDC(0)
+    hBackDC = CreateCompatibleDC(hDC)
+    hBitmap = Create32BitHBITMAP(hBackDC, cx, cy)
+    
+    hBackSV = SelectObject(hBackDC, hBitmap)
+    
+    DrawIconEx hBackDC, 0, 0, hIcon, cx, cy, 0, 0, DI_NORMAL
+    
+    Call SelectObject(hBackDC, hBackSV)
+    Call ReleaseDC(0, hDC)
+    Call DeleteDC(hBackDC)
+    HBitmapFromHIcon = hBitmap
+    End Function
+    Private Function Create32BitHBITMAP(hDC As LongPtr, cx As Long, cy As Long) As LongPtr
+    Dim bmi As BITMAPINFO
+        bmi.bmiHeader.biSize = LenB(bmi.bmiHeader)
+        bmi.bmiHeader.biPlanes = 1
+        bmi.bmiHeader.biCompression = 0
+    
+        bmi.bmiHeader.biWidth = cx
+        bmi.bmiHeader.biHeight = cy
+        bmi.bmiHeader.biBitCount = 32
+        Create32BitHBITMAP = CreateDIBSection(hDC, bmi, DIB_RGB_COLORS, ByVal 0&, 0, 0)
+    End Function
     
     [Description("Loads button icons from the resource file (which is was a compiled exe must exist to take them from when running in the IDE). ")]
     Private Sub InitButtonIcons()
@@ -267,11 +837,13 @@ Class frmMain
         hBtn = LoadImage(hMod, ByVal StrPtr(IDI_REFRESH), IMAGE_ICON, cxyIconBtn, cxyIconBtn, LR_DEFAULTCOLOR Or LR_SHARED)
         If hBtn Then ButtonIconAssign cmdUpdate.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
         DestroyIcon hBtn: hBtn = 0
+        hBtn = LoadImage(hMod, ByVal StrPtr(IDI_AUTO), IMAGE_ICON, cxyIconBtn, cxyIconBtn, LR_DEFAULTCOLOR Or LR_SHARED)
+        If hBtn Then ButtonIconAssign cmdAuto.hWnd, hBtn, cxyIconBtn, cxyIconBtn, 4&, 2&, 2&, 0&
+        DestroyIcon hBtn: hBtn = 0
     End Sub
 
     [Description("Assigns an HICON image to a CommandButton control with the given size and margins.")]
     Private Sub ButtonIconAssign(hWnd As LongPtr, hIcon As LongPtr, cx As Long, CY As Long, margLeft As Long, margRight As Long, margTop As Long, margBottom As Long)
-
     On Error GoTo e0
     Dim bi4 As BUTTON_IMAGELIST
     bi4.himl = ImageList_Create(cx, CY, ILC_COLOR32 Or ILC_MASK, 1, 1)
@@ -291,10 +863,41 @@ Class frmMain
     Debug.Print "ButtonIconAssign.Error->" & Err.Description & " (" & Err.Number & ")"
 
     End Sub
-        
+    
+    Private Sub RenderMemoryBar(ByVal llUsed As LongLong, ByVal llMod As LongLong, ByVal llSB As LongLong, ByVal llFree As LongLong)
+      Dim llTot As LongLong = llUsed + llMod + llSB + llFree
+      Dim cxTot As Long = picMem.ScaleWidth
+      Dim pctUsed As Double = CDbl(llUsed) / CDbl(llTot)
+      Dim pctMod As Double = CDbl(llMod) / CDbl(llTot)
+      Dim pctSB As Double = CDbl(llSB) / CDbl(llTot)
+      Dim pctFree As Double = CDbl(llFree) / CDbl(llTot)
+      
+      Dim cxUsed As Long = CLng(Round(CDbl(cxTot) * pctUsed, 0))
+      Dim cxMod As Long = CLng(Round(CDbl(cxTot) * pctMod, 0))
+      Dim cxSB As Long = CLng(Round(CDbl(cxTot) * pctSB, 0))
+      Dim cxFree As Long = CLng(Round(CDbl(cxTot) * pctFree, 0))
+      
+      shpUsed.Left = 0: shpUsed.Width = cxUsed
+      shpModified.Left = cxUsed - 1: shpModified.Width = cxMod
+      shpStandby.Left = cxUsed + cxMod - 2: shpStandby.Width = cxSB
+      shpFree.Left = cxUsed + cxMod + cxSB - 3: shpFree.Width = cxFree + 3
+      
+      shpUsed.Visible = True
+      shpModified.Visible = True
+      shpStandby.Visible = True
+      shpFree.Visible = True
+      
+      lblKeyDispU.Caption = FormatSizeStd(llUsed * CLngLng(PAGE_SIZE))
+      lblKeyDispM.Caption = FormatSizeStd(llMod * CLngLng(PAGE_SIZE))
+      lblKeyDIspS.Caption = FormatSizeStd(llSB * CLngLng(PAGE_SIZE))
+      lblKeyDispF.Caption = FormatSizeStd(llFree * CLngLng(PAGE_SIZE))
+      
+    End Sub
+    
     Private Sub UpdateMemoryInfo()
         Dim status As NTSTATUS
         Dim cbRet As Long
+        Dim bErr As Boolean
         
         'Basic info 
         Dim sbi As SYSTEM_BASIC_INFORMATION
@@ -309,12 +912,13 @@ Class frmMain
             lblCmtLim.Caption = FormatSizeStd(CLngLng(spi.CommitLimit) * PAGE_SIZE)
             lblCmtPct.Caption = Round((CSng(spi.CommittedPages) / CSng(spi.CommitLimit)) * 100, 0) & "%"
         Else
-            lblFree.Caption = "Unknown"
-            lblTotal.Caption = "Unknown"
-            lblCmtCur.Caption = "Unknown"
-            lblCmtPk.Caption = "Unknown"
-            lblCmtLim.Caption = "Unknown"
+            lblFree.Caption = szUnknown
+            lblTotal.Caption = szUnknown
+            lblCmtCur.Caption = szUnknown
+            lblCmtPk.Caption = szUnknown
+            lblCmtLim.Caption = szUnknown
             lblCmtPct.Caption = "---%"
+            bErr = True
         End If
         
         'Memory list info pane:
@@ -322,7 +926,7 @@ Class frmMain
         Dim llST As LongLong, llSTR As LongLong
         Dim i As Long
         status = NtQuerySystemInformation(SystemMemoryListInformation, sml, LenB(Of SYSTEM_MEMORY_LIST_INFORMATION), cbRet)
-        If NT_SUCCESS(status) Then
+        If NT_SUCCESS(status) And (bErr = False) Then
             lblZero.Caption = FormatSizeStd(CLngLng(sml.ZeroPageCount) * PAGE_SIZE)
             lblListFree.Caption = FormatSizeStd(CLngLng(sml.FreePageCount) * PAGE_SIZE)
             lblListMod.Caption = FormatSizeStd(CLngLng(sml.ModifiedPageCount) * PAGE_SIZE)
@@ -355,38 +959,121 @@ Class frmMain
             lblSBP5R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(5)) * PAGE_SIZE)
             lblSBP6R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(6)) * PAGE_SIZE)
             lblSBP7R.Caption = FormatSizeStd(CLngLng(sml.RepurposedPagesByPriority(7)) * PAGE_SIZE)
+            RenderMemoryBar (sbi.NumberOfPhysicalPages - spi.AvailablePages), sml.ModifiedPageCount , llST , sml.FreePageCount
         Else
-            lblZero.Caption = "Unknown"
-            lblListFree.Caption = "Unknown"
-            lblListMod.Caption = "Unknown"
-            lblListModNW.Caption = "Unknown"
+            lblZero.Caption = szUnknown
+            lblListFree.Caption = szUnknown
+            lblListMod.Caption = szUnknown
+            lblListModNW.Caption = szUnknown
             If NTDDI_VERSION > NTDDI_WIN8 Then
-                lblListModPF.Caption = "Unknown"
+                lblListModPF.Caption = szUnknown
             Else
-                lblListModPF.Caption = "N/A"
+                lblListModPF.Caption = szNA
             End If
-            lblBad.Caption = "Unknown"
-            lblStdByTot.Caption = "Unknown"
-            lblStdByTotR.Caption = "Unknown"
-            lblSBP0.Caption = "Unknown"
-            lblSBP1.Caption = "Unknown"
-            lblSBP2.Caption = "Unknown"
-            lblSBP3.Caption = "Unknown"
-            lblSBP4.Caption = "Unknown"
-            lblSBP5.Caption = "Unknown"
-            lblSBP6.Caption = "Unknown"
-            lblSBP7.Caption = "Unknown"
-            lblSBP0R.Caption = "Unknown"
-            lblSBP1R.Caption = "Unknown"
-            lblSBP2R.Caption = "Unknown"
-            lblSBP3R.Caption = "Unknown"
-            lblSBP4R.Caption = "Unknown"
-            lblSBP5R.Caption = "Unknown"
-            lblSBP6R.Caption = "Unknown"
-            lblSBP7R.Caption = "Unknown"
+            lblBad.Caption = szUnknown
+            lblStdByTot.Caption = szUnknown
+            lblStdByTotR.Caption = szUnknown
+            lblSBP0.Caption = szUnknown
+            lblSBP1.Caption = szUnknown
+            lblSBP2.Caption = szUnknown
+            lblSBP3.Caption = szUnknown
+            lblSBP4.Caption = szUnknown
+            lblSBP5.Caption = szUnknown
+            lblSBP6.Caption = szUnknown
+            lblSBP7.Caption = szUnknown
+            lblSBP0R.Caption = szUnknown
+            lblSBP1R.Caption = szUnknown
+            lblSBP2R.Caption = szUnknown
+            lblSBP3R.Caption = szUnknown
+            lblSBP4R.Caption = szUnknown
+            lblSBP5R.Caption = szUnknown
+            lblSBP6R.Caption = szUnknown
+            lblSBP7R.Caption = szUnknown
+            shpUsed.Visible = False
+            shpModified.Visible = False
+            shpStandby.Visible = False
+            shpFree.Visible = False
+            lblKeyDispU.Caption = "---"
+            lblKeyDispM.Caption = "---"
+            lblKeyDIspS.Caption = "---"
+            lblKeyDispF.Caption = "---"
         End If
     End Sub
     
+    Private Sub AddTrayIcon()
+        Dim tNIF As NOTIFYICONDATAW
+        Dim dpi As Long = GetTaskbarDPI()
+        Dim lRet As Long
+        With tNIF
+            .cbSize = LenB(Of NOTIFYICONDATAW)
+            .hWnd = Me.hWnd
+            .hIcon = LoadSmallAppIcon(dpi)
+            .uID = 102
+            .uFlags = NIF_ICON Or NIF_MESSAGE Or NIF_TIP Or NIF_GUID
+            .uCallbackMessage = WM_MLMNOTIFYICON
+            .guidItem = tNIGuid
+            CopyMemory .szTip(0), ByVal StrPtr(App.Title), Len(App.Title) * 2
+            lRet = Shell_NotifyIconW(NIM_ADD, tNIF)
+            If lRet = 0 Then
+                SetStatus "AddTrayIcon, lRet=" & lRet & ", lastErr=" & Err.LastDllError & ", " & GetSystemErrorString(Err.LastDllError)
+            End If
+            .uTimeoutAndVersion = NOTIFYICON_VERSION_4
+            ' If Shell_NotifyIconW(NIM_SETVERSION, tNIF) = 0 Then
+            '     MsgBox "NIM_SETVERSION Unsupported version"
+            ' End If
+        End With
+        
+        mInTray = True
+        
+    End Sub
+    Private Sub RemoveTrayIcon()
+        Dim tNIF As NOTIFYICONDATAW
+        With tNIF
+            .cbSize = LenB(Of NOTIFYICONDATAW)
+            .hWnd = Me.hWnd
+            .uID = 102
+            .uFlags = NIF_GUID
+            .guidItem = tNIGuid
+        End With
+        Shell_NotifyIconW NIM_DELETE, tNIF
+    End Sub
+    
+    Private Function LoadSmallAppIcon(dpi As Long) As LongPtr
+        Static hIcon As LongPtr
+        If hIcon Then Return hIcon
+        Dim cx As Long, cy As Long
+        cx = GetSystemMetricsForDpi(SM_CXSMICON, dpi)
+        cy = GetSystemMetricsForDpi(SM_CYSMICON, dpi)
+        LoadIconWithScaleDown(hMod, StrPtr(IDI_MAIN), cx, cy, hIcon)
+        Return hIcon
+    End Function
+        
+    Private Function GetTaskbarDPI() As Long
+        Dim hwnd As LongPtr = GetShellWindow()
+        Dim rc As RECT
+        Dim dpiX As Long, dpiY As Long
+        If hwnd Then
+            GetWindowRect hwnd, rc
+        End If
+        If IsRectEmpty(rc) Then
+            hwnd = GetDesktopWindow()
+            GetWindowRect hwnd, rc
+        End If
+        Dim hMon As LongPtr = MonitorFromRect(rc, MONITOR_DEFAULTTONEAREST)
+        If GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, dpiX, dpiY) = S_OK Then
+            Return dpiX
+        Else
+            Dim tDC As LongPtr, lRez As Long, lDPI As Long
+            tDC = GetDC(0)
+            lRez = GetDeviceCaps(tDC, DESKTOPHORZRES)
+            lDPI = 96! * lRez / (Screen.Width / Screen.TwipsPerPixelX) * 15 / (1440 / GetDeviceCaps(tDC, LOGPIXELSX))
+            If (lDPI <> 96) And (lDPI <> mDPI) And (lDPI > 1) Then
+                Return lDPI
+            Else
+                Return mDPI
+            End If
+        End If
+    End Function
     Private Function FormatSizeStd(ByVal llSize As LongLong) As String
         Return FormatSize(llSize, False, sSizeFmt_byte, False, sSizeFmt_kb, False, _
                 sSizeFmt_mb, False, sSizeFmt_gb, False, sSizeFmt_tb, False, sSizeFmt_pb)
@@ -446,6 +1133,17 @@ Class frmMain
             FormatSize = vbNullString
     End Function
     
+ 
+    
+    Private Function Subclass2(hWnd As LongPtr, lpFN As LongPtr, Optional uId As LongPtr = 0&, Optional dwRefData As LongPtr = 0&) As Boolean
+    If uId = 0 Then uId = hWnd
+        Subclass2 = SetWindowSubclass(hWnd, lpFN, uId, dwRefData):      Debug.Assert Subclass2
+    End Function
+
+    Private Function UnSubclass2(hWnd As LongPtr, ByVal lpFN As LongPtr, pid As LongPtr) As Boolean
+        UnSubclass2 = RemoveWindowSubclass(hWnd, lpFN, pid)
+    End Function
+    
     Public Function TaskDialogCallbackProc(ByVal hwnd As LongPtr, ByVal uNotification As Long, ByVal wParam As LongPtr, ByVal lParam As LongPtr, ByVal lpRefData As LongPtr) As LongPtr
         Select Case uNotification
             'Replace the shield icon with our app icon
@@ -457,9 +1155,38 @@ Class frmMain
                 Call ShellExecuteW(0, 0, lParam, 0, 0, SW_SHOWNORMAL)
         End Select
     End Function
-
     
-
-End Class
-
+    Private Function F1WndProc(ByVal hWnd As LongPtr, ByVal uMsg As Long, ByVal wParam As LongPtr, ByVal lParam As LongPtr, ByVal uIdSubclass As LongPtr, ByVal dwRefData As LongPtr) As LongPtr
+                        
+    Select Case uMsg
+        Case WM_SYSCOMMAND
+            If wParam = SC_MINIMIZE Then
+                If optMin(1).Value = True Then 'Minimize to tray
+                    'Me.ShowInTaskbar = False
+                    SetShowInTaskbar(Me.hWnd, False)
+                    AddTrayIcon()
+                End If
+            ElseIf (wParam = SC_RESTORE) Then
+                If mInTray Then
+                    SetShowInTaskbar(Me.hWnd, True)
+                    RemoveTrayIcon()
+                End If
+            End If
+            
+        Case WM_MLMNOTIFYICON
+            If LOWORD(CLng(lParam)) = WM_CONTEXTMENU Then
+                ShowTrayContextMenu(hWnd)
+            ElseIf (LOWORD(CLng(lParam)) = WM_LBUTTONDBLCLK) Or (LOWORD(CLng(lParam)) = WM_LBUTTONUP) Then
+                ShowWindow Me.hWnd, SW_RESTORE
+                SetShowInTaskbar(Me.hWnd, True)
+                RemoveTrayIcon()
+            End If
  
+        Case WM_DESTROY
+            If mInTray Then RemoveTrayIcon()
+            Call UnSubclass2(hWnd, AddressOf F1WndProc, uIdSubclass)
+    End Select
+    F1WndProc = DefSubclassProc(hWnd, uMsg, wParam, lParam)
+    End Function
+ 
+End Class

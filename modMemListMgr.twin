@@ -1,13 +1,12 @@
-
 /* ********************************************************************
 *                                                                     *
-* Memory List Manager Version 1.2                                     *
+* Memory List Manager Version v2.0                                    *
 * (Main module)                                                       *
 * A simple tool to free standby memory and flush caches.              *
 *                                                                     *
 * Requirements:                                                       *
 *    -Windows XP or newer (note: Some functions require Windows 7,    *
-*     or Windows 8/Windows 8.1).                                                *
+*     or Windows 8/Windows 8.1).                                      *
 *    -This program generally must be run as admin for all commands.   *
 *         Specifically, most operations require the                   *
 *         SeProfileSingleProcessPrivilege and emptying the file cache *
@@ -17,6 +16,7 @@
 * Command line usage:                                                 *
 *    In addition to the GUI, the memory management actions can be     *
 *    invoked through the command line without loading the main form:  *
+*           /auto                Automatic optimization               *
 *           /clearstdby          Clears standby list                  *
 *           /clearlpstdby        Clears low-priority standby list     *
 *           /flushmod            Flush modified memory to disk        *
@@ -24,9 +24,10 @@
 *           /emptyws             Empties working sets                 *
 *           /flushreg            Flushes system registry cache        *
 *           /flushfiles          Flushes the system file cache        *
-*    Note: Currently only one parameter at a time is accepted.        *
+*    Note: Multiple commands are supported, and will be executed in   *
+*          the order that they appear, left to right.                 *
 *                                                                     *
-* Released: 13 June 2024                                              *
+* Released: 21 June 2024                                              *
 *                                                                     *
 * Author: Jon Johnson (aka fafalone).                                 *
 * (c) 2024  Licensed under the MIT License, see LICENSE.md            *
@@ -34,6 +35,18 @@
 * Project home page: https://github.com/fafalone/MemListMgr           *
 *                                                                     *
 * Changelog                                                           *
+*   Version 2.0 (21 Jun 2024)                                         *
+*     -Added graphical Memory Bar to visualize modified/standby usage *
+*        Can change colors, double click key (small circle) to set    *
+*     -Added Auto-optimize option for common procedure                *
+*     -Added option to monitor status and auto-exec AutoOptimize      *
+*     -Added minimize to tray option with commands available from a   *
+*       popup menu when right-clicking the tray icon. (Vista+)        *
+*     -New settings are saved to/loaded from registry                 *
+*     -Moved strings to constant list at top for easier translation.  *
+*                                                                     *
+*   Version 1.3 (14 Jun 2024) - Added support for multiple command    *
+*        line commands, executed in order left to right.              *
 *   Version 1.2 (13 Jun 2024) - Free memory label width and commit    *
 *        charge % regressed from tests to release, displaying wrong   *
 *   Version 1.1 (13 Jun 2024) - SetCursor calls fixed.                *
@@ -60,14 +73,69 @@ Module modMemListMgr
     Public Const IDI_DISK = "104"
     Public Const IDI_CMB = "105"
     Public Const IDI_REFRESH = "106"
+    Public Const IDI_AUTO = "107"
+    
+    Public Const szAutoOpt As String = "&Auto-optimize"
+    Public Const szAutoOptTT As String = "Empties working sets, then flushes modified and standby."
+    Public Const IDM_AUTOOPT = 400
+    
+    Public Const szClearStd As String = "&Clear standby RAM"
+    Public Const szClearStdTT As String = "Clears memory marked as standby by the system."
+    Public Const IDM_CLEARSTD = 401
+    
+    Public Const szClearStdLP As String = "Clear standby RAM (&LP)"
+    Public Const szClearStdLPTT As String = "Clears memory marked as low-priority standby by the system."
+    Public Const IDM_CLEARSTDLP = 402
+    
+    Public Const szEmptyWS As String = "Empty &working sets"
+    Public Const szEmptyWSTT As String = "Empties working sets."
+    Public Const IDM_EMPTYWS = 403
+    
+    Public Const szFlushMod As String = "Flush &modified RAM"
+    Public Const szFlushModTT As String = "Flushes memory waiting to be written to disk."
+    Public Const IDM_FLUSHMOD = 404
+    
+    Public Const szCmb As String = "&Combine pages"
+    Public Const szCmbTT As String = "Combines memory pages for efficiency."
+    Public Const IDM_COMBINE = 405
+    
+    Public Const szFlushReg As String = "Flush &registry cache"
+    Public Const szFlushRegTT As String = "Flushes the system registry cache."
+    Public Const IDM_FLUSHREG = 406
+    
+    Public Const szFlushFiles As String = "Flush system &file cache"
+    Public Const szFlushFilesTT As String = "Flushes the system file cache."
+    Public Const IDM_FLUSHFILES = 407
+    
+    Public Const szRestore As String = "&Open Memory List Manager"
+    Public Const szRestoreTT As String = "Shows the full program window."
+    Public Const IDM_RESTORE = 408
+    
+    Public Const szExit As String = "&Exit"
+    Public Const szExitTT As String = "Completely exit the program."
+    Public Const IDM_EXIT = 409
     
     Sub Main()
         Dim fEnabled As Byte
         Dim status As NTSTATUS = RtlAdjustPrivilege(SE_PROF_SINGLE_PROCESS_PRIVILEGE, 1, 0, fEnabled)
         'Debug.Print "RtlAdjustPrivilege status=0x" & Hex$(status) & " " & GetNtErrorString(status)
-        
         Dim sCmd As String = Command$()
         If sCmd = "" Then
+            If App.PrevInstance Then
+                Debug.Print "Previous instance detected.."
+                Dim hApp As LongPtr = FindWindow("ThunderRT6Main", "Memory List Manager")
+                If hApp Then
+                    ShowWindow hApp, SW_SHOW
+                    SetForegroundWindow hApp
+                    Dim tFWI As FLASHWINFO
+                    tFWI.cbSize = LenB(Of FLASHWINFO)
+                    tFWI.hWnd = hApp
+                    tFWI.dwFlags = FLASHW_ALL
+                    tFWI.uCount = 3
+                    FlashWindowEx tFWI
+                End If
+                Exit Sub
+            End If
             hMod = GetModuleHandleW()
             Dim InIde As Boolean: Debug.Assert MakeTrue(InIde)
             If InIde Then
@@ -87,30 +155,63 @@ Module modMemListMgr
             frmMain.Show
             
         Else
-            
-            sCmd = LCase$(sCmd)
-            'todo: support multiple ops at once
-            If sCmd = "/clearstdby" Then
-                status = ClearStandby(False)
-            ElseIf sCmd = "/clearlpstdby" Then
-                status = ClearStandby(True)
-            ElseIf sCmd = "/flushmod" Then
-                status = FlushModified()
-            ElseIf sCmd = "/emptyws" Then
-                status = EmptyWorkingSets()
-            ElseIf sCmd = "/combine" Then
-                status = CombinePages()
-            ElseIf sCmd = "/flushreg" Then
-                status = FlushRegistryCache()
-            ElseIf sCmd = "/flushfiles" Then
-                status = FlushFileCache()
+            'Do not use the following for general command line parsing;
+            'it's tailored specifically to our case of simple commands
+            'with no arguments.
+            sCmd = Replace$(sCmd, " ", "")
+            sCmd = Replace$(sCmd, ChrW$(34), "")
+            If Len(sCmd) < 8 Then 'Length less than shortest command
+                MsgBox "Invalid command line.", vbCritical + vbOKOnly, App.Title
+                Exit Sub
             End If
-            
+            Dim sCmds() As String
+            sCmd = LCase$(sCmd)
+            Dim nCmd As Long = InStrCCnt(sCmd, "/")
+            If nCmd = 0 Then
+                MsgBox "Invalid command line.", vbCritical + vbOKOnly, App.Title
+                Exit Sub
+            End If
+            If nCmd = 1 Then
+                ReDim sCmds(0)
+                sCmds(0) = Mid$(sCmd, 2) 'Split will remove the delimiters
+            Else
+                sCmds() = Split(Mid$(sCmd, 2), "/")
+            End If
+            Dim i As Long
+            For i = 0 To UBound(sCmds)
+                If sCmds(i) = "clearstdby" Then
+                    status = ClearStandby(False)
+                ElseIf sCmds(i) = "clearlpstdby" Then
+                    status = ClearStandby(True)
+                ElseIf sCmds(i) = "flushmod" Then
+                    status = FlushModified()
+                ElseIf sCmds(i) = "emptyws" Then
+                    status = EmptyWorkingSets()
+                ElseIf sCmds(i) = "combine" Then
+                    status = CombinePages()
+                ElseIf sCmds(i) = "flushreg" Then
+                    status = FlushRegistryCache()
+                ElseIf sCmds(i) = "flushfiles" Then
+                    status = FlushFileCache()
+                ElseIf sCmds(i) = "auto" Then
+                    status = AutoOptimize()
+                Else
+                    MsgBox "Invalid command.", vbCritical + vbOKOnly, App.Title
+                End If
+            Next
         End If
             
     End Sub
     Public Function MakeTrue(ByRef x As Boolean) As Boolean
         x = True: MakeTrue = True
+    End Function
+    Private Function InStrCCnt(ByVal str As String, ByVal char As String) As Long
+        If Len(char) > 1 Then char = Left$(char, 1)
+        Dim i As Long, j As Long
+        For i = 1 To Len(str)
+            If Mid$(str, i, 1) = char Then j += 1
+        Next
+        Return j
     End Function
     
     Public Function GetExePath() As String
@@ -125,18 +226,21 @@ Module modMemListMgr
     
     Private Sub CreateJumpList(sID As String)
         On Error GoTo e0
+        
         Set cJL = New cJumpList
         cJL.InitList sID
         
         Dim pTasks As New EnumerableObjectCollection
-        cJL.AddToList pTasks, "Clear standby RAM", "/clearstdby", "Clears memory marked as standby by the system.", CLng(IDI_MAIN) - 101 'The icon id needed is the zero-based index
-        cJL.AddToList pTasks, "Clear standby RAM (LP)", "/clearlpstdby", "Clears memory marked as low-priority standby by the system.", CLng(IDI_MAIN) - 101
-        cJL.AddToList pTasks, "Flush modified RAM", "/flushmod", "Flushes memory waiting to be written to disk.", CLng(IDI_MAIN) - 101
+        cJL.AddToList pTasks, szAutoOpt, "/auto", szAutoOptTT, CLng(IDI_AUTO) - 101
+        cJL.AddToList pTasks 'Leave blank for separator        
+        cJL.AddToList pTasks, szClearStd, "/clearstdby", szClearStdTT, CLng(IDI_MAIN) - 101 'The icon id needed is the zero-based index
+        cJL.AddToList pTasks, szClearStdLP, "/clearlpstdby", szClearStdLPTT, CLng(IDI_MAIN) - 101
+        cJL.AddToList pTasks, szFlushMod, "/flushmod", szFlushModTT, CLng(IDI_MAIN) - 101
         cJL.AddToList pTasks 'Leave blank for separator
-        cJL.AddToList pTasks, "Empty working sets", "/emptyws", "Empties working sets.", CLng(IDI_WS) - 101
-        cJL.AddToList pTasks, "Combine pages", "/combine", "Combines memory pages for efficiency.", CLng(IDI_CMB) - 101
-        cJL.AddToList pTasks, "Flush registry cache", "/flushreg", "Flushes the system registry cache.", CLng(IDI_REG) - 101
-        cJL.AddToList pTasks, "Flush system file cache", "/flushfiles", "Flushes the system file cache.", CLng(IDI_DISK) - 101
+        cJL.AddToList pTasks, szEmptyWS, "/emptyws", szEmptyWSTT, CLng(IDI_WS) - 101
+        cJL.AddToList pTasks, szCmb, "/combine", szCmbTT, CLng(IDI_CMB) - 101
+        cJL.AddToList pTasks, szFlushReg, "/flushreg", szFlushRegTT, CLng(IDI_REG) - 101
+        cJL.AddToList pTasks, szFlushFiles, "/flushfiles", szFlushFilesTT, CLng(IDI_DISK) - 101
                         
         cJL.AddUserTasks pTasks
 
@@ -214,6 +318,22 @@ Module modMemListMgr
         Return status
     End Function
     
+    Public Function AutoOptimize() As NTSTATUS
+        Dim status As NTSTATUS
+        status = EmptyWorkingSets()
+        If Not NT_SUCCESS(status) Then
+            AutoOptimize = status
+        End If
+        status = FlushModified()
+        If Not NT_SUCCESS(status) Then
+            AutoOptimize = status
+        End If
+        status = ClearStandby()
+        If Not NT_SUCCESS(status) Then
+            AutoOptimize = status
+        End If
+    End Function
+    
 
     Public Function NTDDI_VERSION() As Long
         'Gets the NTDDI version value associated with the current OS
@@ -231,7 +351,7 @@ Module modMemListMgr
         If lpPeb Then
             CopyMemory tPeb, ByVal lpPeb, LenB(Of PEB)
             usCSD = tPeb.OSCSDVersion
-            Debug.Print "OSCSDVersion = " & usCSD
+            ' Debug.Print "OSCSDVersion = " & usCSD
         End If
         If dwMajor < 10 Then
             ntddi += ((dwMajor And &HFF&) << 24&)
@@ -267,12 +387,11 @@ Module modMemListMgr
         Return ntddi
     End Function
     
-
 End Module
 
 Class cJumpList
     Option Explicit
-    'cJump v1.1: Using Jump Lists in twinBASIC
+    'cJumpList v1.1: Using Jump Lists in twinBASIC
     'by fafalone
     '
     'Requires Windows Development Library for twinBASIC (WinDevLib)

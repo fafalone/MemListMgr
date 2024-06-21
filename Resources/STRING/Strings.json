@@ -1,0 +1,16 @@
+[
+    {
+        "id": 201,
+        "name": "strAutoOpt",
+        "LCID_0000": "Auto-optimize",
+        "LCID_0409": "Auto-optimize",
+        "LCID_0809": "Auto-optimize"
+    },
+    {
+        "id": 202,
+        "name": "strAutoOptTT",
+        "LCID_0000": "Empties working sets, then flushes modified and standby.",
+        "LCID_0409": "Empties working sets, then flushes modified and standby.",
+        "LCID_0809": "Empties working sets, then flushes modified and standby."
+    }
+]
