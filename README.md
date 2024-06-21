@@ -7,6 +7,8 @@
 Memory List Manager is a small, lightweight utility to clear standby memory and flush caches, without needing to load a full heavyweight system resources app like SystemInformer, the code for which this project is based on. Windows keeps memory contents it thinks you might use again soon loaded and marked as standby, theoretically this memory is 'available' but memory management isn't always perfect, and high persistent standby and especially modified memory can cause reduced system performance, certain issues with some memory intensive apps or even lead to spurious out of memory errors and system destabilization.
 
 ### Updates
+Version 2.0.2 (21 Jun 2024)\
+-Bug fix, debug MsgBox on exit still enabled. Built with new version info fix.\
 Version 2.0 (21 Jun 2024)\
 -Added graphical Memory Bar to visualize modified/standby usage\
     Can change colors, double click key (small circle) to set\
