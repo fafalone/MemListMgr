@@ -1,6 +1,6 @@
 /* ********************************************************************
 *                                                                     *
-* Memory List Manager Version v2.0.2                                  *
+* Memory List Manager Version v2.1.4                                  *
 * (Main module)                                                       *
 * A simple tool to free standby memory and flush caches.              *
 *                                                                     *
@@ -27,7 +27,7 @@
 *    Note: Multiple commands are supported, and will be executed in   *
 *          the order that they appear, left to right.                 *
 *                                                                     *
-* Released: 21 June 2024                                              *
+* Released: 29 June 2024                                              *
 *                                                                     *
 * Author: Jon Johnson (aka fafalone).                                 *
 * (c) 2024  Licensed under the MIT License, see LICENSE.md            *
@@ -35,6 +35,15 @@
 * Project home page: https://github.com/fafalone/MemListMgr           *
 *                                                                     *
 * Changelog                                                           *
+*   Version 2.1.4 (29 Jun 2024)                                       *
+*     - Added toggle for memory bar at top                            *
+*     - GUI will now update when jump list commands are used          *
+*     - Always call UpdateMemoryInfo immediately after op             *
+*     - Bug fix: Autooptmize taskbar command not working              *
+*     - Bug fix: Taskbar command accelerators not supported.          *
+*     - Bug fix: Mem free display mismatch                            *
+*     - Temp. workaround for exit while minimized failure             *
+*                                                                     *
 *   Version 2.0.2 (21 Jun 2024)                                       *
 *     - Bug fix, debug MsgBox on exit still enabled. Built with new   *
 *          version info fix.                                          *
@@ -69,6 +78,8 @@ Module modMemListMgr
     [Description("The Taskbar JumpList object class wrapper.")]
     Public cJL As cJumpList
     
+    Public Const WM_MLMUPDATEINFO = WM_USER + &H140
+    
     'Icon resource IDs
     Public Const IDI_MAIN = "101"
     Public Const IDI_WS = "102"
@@ -78,43 +89,43 @@ Module modMemListMgr
     Public Const IDI_REFRESH = "106"
     Public Const IDI_AUTO = "107"
     
-    Public Const szAutoOpt As String = "&Auto-optimize"
+    Public Const szAutoOpt As String = "Auto-optimize"
     Public Const szAutoOptTT As String = "Empties working sets, then flushes modified and standby."
     Public Const IDM_AUTOOPT = 400
     
-    Public Const szClearStd As String = "&Clear standby RAM"
+    Public Const szClearStd As String = "Clear standby RAM"
     Public Const szClearStdTT As String = "Clears memory marked as standby by the system."
     Public Const IDM_CLEARSTD = 401
     
-    Public Const szClearStdLP As String = "Clear standby RAM (&LP)"
+    Public Const szClearStdLP As String = "Clear standby RAM (LP)"
     Public Const szClearStdLPTT As String = "Clears memory marked as low-priority standby by the system."
     Public Const IDM_CLEARSTDLP = 402
     
-    Public Const szEmptyWS As String = "Empty &working sets"
+    Public Const szEmptyWS As String = "Empty working sets"
     Public Const szEmptyWSTT As String = "Empties working sets."
     Public Const IDM_EMPTYWS = 403
     
-    Public Const szFlushMod As String = "Flush &modified RAM"
+    Public Const szFlushMod As String = "Flush modified RAM"
     Public Const szFlushModTT As String = "Flushes memory waiting to be written to disk."
     Public Const IDM_FLUSHMOD = 404
     
-    Public Const szCmb As String = "&Combine pages"
+    Public Const szCmb As String = "Combine pages"
     Public Const szCmbTT As String = "Combines memory pages for efficiency."
     Public Const IDM_COMBINE = 405
     
-    Public Const szFlushReg As String = "Flush &registry cache"
+    Public Const szFlushReg As String = "Flush registry cache"
     Public Const szFlushRegTT As String = "Flushes the system registry cache."
     Public Const IDM_FLUSHREG = 406
     
-    Public Const szFlushFiles As String = "Flush system &file cache"
+    Public Const szFlushFiles As String = "Flush system file cache"
     Public Const szFlushFilesTT As String = "Flushes the system file cache."
     Public Const IDM_FLUSHFILES = 407
     
-    Public Const szRestore As String = "&Open Memory List Manager"
+    Public Const szRestore As String = "Open Memory List Manager"
     Public Const szRestoreTT As String = "Shows the full program window."
     Public Const IDM_RESTORE = 408
     
-    Public Const szExit As String = "&Exit"
+    Public Const szExit As String = "Exit"
     Public Const szExitTT As String = "Completely exit the program."
     Public Const IDM_EXIT = 409
     
@@ -129,6 +140,7 @@ Module modMemListMgr
                 Dim hApp As LongPtr = FindWindow("ThunderRT6Main", "Memory List Manager")
                 If hApp Then
                     ShowWindow hApp, SW_SHOW
+                    ShowWindow hApp, SW_RESTORE
                     SetForegroundWindow hApp
                     Dim tFWI As FLASHWINFO
                     tFWI.cbSize = LenB(Of FLASHWINFO)
@@ -163,7 +175,7 @@ Module modMemListMgr
             'with no arguments.
             sCmd = Replace$(sCmd, " ", "")
             sCmd = Replace$(sCmd, ChrW$(34), "")
-            If Len(sCmd) < 8 Then 'Length less than shortest command
+            If Len(sCmd) < 4 Then 'Length less than shortest command
                 MsgBox "Invalid command line.", vbCritical + vbOKOnly, App.Title
                 Exit Sub
             End If
@@ -181,29 +193,43 @@ Module modMemListMgr
                 sCmds() = Split(Mid$(sCmd, 2), "/")
             End If
             Dim i As Long
+            Dim wp As LongPtr
             For i = 0 To UBound(sCmds)
                 If sCmds(i) = "clearstdby" Then
                     status = ClearStandby(False)
+                    wp = IDM_CLEARSTD
                 ElseIf sCmds(i) = "clearlpstdby" Then
                     status = ClearStandby(True)
+                    wp = IDM_CLEARSTDLP
                 ElseIf sCmds(i) = "flushmod" Then
                     status = FlushModified()
+                    wp = IDM_FLUSHMOD
                 ElseIf sCmds(i) = "emptyws" Then
                     status = EmptyWorkingSets()
+                    wp = IDM_EMPTYWS
                 ElseIf sCmds(i) = "combine" Then
                     status = CombinePages()
+                    wp = IDM_COMBINE
                 ElseIf sCmds(i) = "flushreg" Then
                     status = FlushRegistryCache()
+                    wp = IDM_FLUSHREG
                 ElseIf sCmds(i) = "flushfiles" Then
                     status = FlushFileCache()
+                    wp = IDM_FLUSHFILES
                 ElseIf sCmds(i) = "auto" Then
                     status = AutoOptimize()
+                     wp = IDM_AUTOOPT
                 Else
-                    MsgBox "Invalid command.", vbCritical + vbOKOnly, App.Title
+                    MsgBox "Invalid command: " & sCmds(i), vbCritical + vbOKOnly, App.Title
+                    Exit Sub
                 End If
             Next
+            Dim hWndApp As LongPtr = FindWindow("ThunderFormDC", "Memory List Manager")
+            If hWndApp Then 'If an existing instance is running, tell it to update
+                SendMessage hWndApp, WM_MLMUPDATEINFO, wp, ByVal status
+            End If
+            ' MsgBox "Sent WM_MLMUPDATEINFO(" & wp & ", " & status & ") to " & Hex$(hWndApp)
         End If
-            
     End Sub
     Public Function MakeTrue(ByRef x As Boolean) As Boolean
         x = True: MakeTrue = True

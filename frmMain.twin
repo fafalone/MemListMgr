@@ -4,13 +4,16 @@
 Class frmMain
 ' ***********************************************************************
 ' *                                                                     *
-' * Memory List Manager Version 2.0.2                                   *
+' * Memory List Manager Version 2.1.4                                   *
 ' * GUI Form                                                            *
 ' *                                                                     *
 ' * See modMemListMgr.twin for full details.                            *
 ' *                                                                     *
 ' ***********************************************************************
 
+    Private bExitBug As Boolean 'temp workaround for not exiting when minimized
+                                'signals to use PostQuitMessage from Form_Unload
+    Private ldbg As Boolean, sdbg As String
     
     Private Const sSizeFmt_byte = "0 bytes"
     Private Const sSizeFmt_kb = "#,##0 KB"
@@ -21,10 +24,10 @@ Class frmMain
     
     Private Const PAGE_SIZE As LongLong = &H1000
     
-    Private Const szWelcome = "Welcome to Memory List Manager v2.0"
+    Private Const szWelcome = "Welcome to Memory List Manager v2.1"
     
     Private Const szHelpTitle = "Memory List Manager"
-    Private Const szHelpHeader = "Memory List Manager v2.0"
+    Private Const szHelpHeader = "Memory List Manager v2.1"
     Private Const szHelpMessage = "This is a small utility to free up memory held in standby and in caches " & _
                                   "by Jon Johnson based code from SystemInformer. Developed in twinBASIC. " & vbcrlf & vbcrlf & _
                                   "For the readme, filing bug reports, original source, and more utilities, visit the project's GitHub repository:" & vbcrlf & _
@@ -46,10 +49,12 @@ Class frmMain
     Private Const szWSOk = "Successfully emptied working sets."
     Private Const szWSErr = "Failed to empty working sets, "
     Private Const szCombined = "Combined %1 (%2 pages)"
+    Private Const szCmbOk = "Succesfully combined pages."
     Private Const szCmbErr = "Failed to combine pages, "
     Private Const szRegOk = "Successfully flushed registry cache."
     Private Const szRegErr = "Failed to flush registry cache, "
     Private Const szFileOk = "Successully flushed %1 in system file cache."
+    Private Const szFileOk2 = "Successully flushed system file cache."
     Private Const szFileErr = "Failed to flush system file cache, "
     Private Const szBadAR = "Auto-refresh interval must be greater than zero."
     Private Const szAOOk = "Successfully set Auto-apply options."
@@ -58,6 +63,7 @@ Class frmMain
     Private Const szAAOk = "Successfully completed auto-optimize routine."
     Private Const szAAErr = "Failed to complete auto-optimize routine, "
     Private Const szNA = "N/A"
+    Private Const szOpErr = "Operation failed, "
     
     Private cxyIcon As Long, cxyIconBtn As Long, cxyIconTray As Long
     Private m_ScaleX As Single, m_ScaleY As Single
@@ -70,16 +76,20 @@ Class frmMain
     Private mAOUseM As Boolean
     Private mAOUseS As Boolean
     
+    
     Private Const WM_MLMNOTIFYICON = WM_USER + &H123
     Private tNIGuid As UUID
     
     Private clrCustom(15) As Long
+    
+    Private mInMenu As Boolean
 
     Private Sub SetStatus(szMessage As String)
         txtStatus.Text = szMessage
         txtStatus.ToolTipText = szMessage
     End Sub
     Private Sub OnLoad() Handles Form.Load
+       ' SetWindowLong Me.hWnd, GWL_HWNDPARENT, 0
         If NTDDI_VERSION < NTDDI_WINXP Then
             MsgBox szBadOS, vbCritical + vbOKOnly, App.Title
             End
@@ -134,17 +144,111 @@ Class frmMain
         End If
     End Sub
     
+    Private Sub HideMemoryBar()
+        picMem.Visible = False
+        lblKeyU.Visible = False
+        lblKeyDispU.Visible = False
+        picKeyU.Visible = False
+        lblKeyM.Visible = False
+        lblKeyDispM.Visible = False
+        picKeyM.Visible = False
+        lblKeyS.Visible = False
+        lblKeyDIspS.Visible = False
+        picKeyS.Visible = False
+        lblKeyF.Visible = False
+        lblKeyDispF.Visible = False
+        picKeyF.Visible = False
+        Frame1.Top -= (78 * m_ScaleY)
+        Frame2.Top -= (78 * m_ScaleY)
+        Image1.Top -= (78 * m_ScaleY)
+        Label23.Top -= (78 * m_ScaleY)
+        Label1.Top -= (78 * m_ScaleY)
+        Label24.Top -= (78 * m_ScaleY)
+        Label32.Top -= (78 * m_ScaleY)
+        cmdAbout.Top -= (78 * m_ScaleY)
+        cmdAuto.Top -= (78 * m_ScaleY)
+        cmdExit.Top -= (78 * m_ScaleY)
+        cmdEmptyStandby.Top -= (78 * m_ScaleY)
+        cmdEmptyLPStandby.Top -= (78 * m_ScaleY)
+        cmdEmptyWS.Top -= (78 * m_ScaleY)
+        cmdCombine.Top -= (78 * m_ScaleY)
+        cmdFlushFileCache.Top -= (78 * m_ScaleY)
+        cmdFlushModified.Top -= (78 * m_ScaleY)
+        cmdFlushRegCache.Top -= (78 * m_ScaleY)
+        cmdAutoOpts.Top -= (78 * m_ScaleY)
+        cmdUpdate.Top -= (78 * m_ScaleY)
+        chkToggleBar.Top -= (78 * m_ScaleY)
+        chkAutoRefresh.Top -= (78 * m_ScaleY)
+        chkAAO.Top -= (78 * m_ScaleY)
+        optMin(0).Top -= (78 * m_ScaleY)
+        optMin(1).Top -= (78 * m_ScaleY)
+        txtAutoRefreshTime.Top -= (78 * m_ScaleY)
+        Me.Height -= ((78 * m_ScaleY) * Screen.TwipsPerPixelY)
+        Label24.Refresh
+    End Sub
+    Private Sub UnhideMemoryBar()
+        If Frame1.Top > (20 * m_ScaleY) Then Exit Sub 'tb Bug::This sub fires on startup, so nothing has been moved up or hidden
+        picMem.Visible = True
+        lblKeyU.Visible = True
+        lblKeyDispU.Visible = True
+        picKeyU.Visible = True
+        lblKeyM.Visible = True
+        lblKeyDispM.Visible = True
+        picKeyM.Visible = True
+        lblKeyS.Visible = True
+        lblKeyDIspS.Visible = True
+        picKeyS.Visible = True
+        lblKeyF.Visible = True
+        lblKeyDispF.Visible = True
+        picKeyF.Visible = True
+        Frame1.Top += (78 * m_ScaleY)
+        Frame2.Top += (78 * m_ScaleY)
+        Image1.Top += (78 * m_ScaleY)
+        Label23.Top += (78 * m_ScaleY)
+        Label1.Top += (78 * m_ScaleY)
+        Label24.Top += (78 * m_ScaleY)
+        Label32.Top += (78 * m_ScaleY)
+        cmdAbout.Top += (78 * m_ScaleY)
+        cmdAuto.Top += (78 * m_ScaleY)
+        cmdExit.Top += (78 * m_ScaleY)
+        cmdEmptyStandby.Top += (78 * m_ScaleY)
+        cmdEmptyLPStandby.Top += (78 * m_ScaleY)
+        cmdEmptyWS.Top += (78 * m_ScaleY)
+        cmdCombine.Top += (78 * m_ScaleY)
+        cmdFlushFileCache.Top += (78 * m_ScaleY)
+        cmdFlushModified.Top += (78 * m_ScaleY)
+        cmdFlushRegCache.Top += (78 * m_ScaleY)
+        cmdAutoOpts.Top += (78 * m_ScaleY)
+        cmdUpdate.Top += (78 * m_ScaleY)
+        chkToggleBar.Top += (78 * m_ScaleY)
+        chkAutoRefresh.Top += (78 * m_ScaleY)
+        chkAAO.Top += (78 * m_ScaleY)
+        optMin(0).Top += (78 * m_ScaleY)
+        optMin(1).Top += (78 * m_ScaleY)
+        txtAutoRefreshTime.Top += (78 * m_ScaleY)
+        Me.Height += ((78 * m_ScaleY) * Screen.TwipsPerPixelY)
+        Label24.Refresh
+    End Sub
+    Private Sub OnToggleMemoryBar() Handles chkToggleBar.Click
+        Debug.Print "OnToggleMemoryBar vis=" & picMem.Visible & ",top=" & Frame1.Top
+        If chkToggleBar.Value = vbUnchecked Then
+            HideMemoryBar
+        Else
+            UnhideMemoryBar
+        End If
+    End Sub
+    
     Private Sub OnSetAutoRefresh() Handles chkAutoRefresh.Click
         If chkAutoRefresh.Value = vbChecked Then
-            Timer1.Interval = CLng(Text1.Text) * 1000
+            Timer1.Interval = CLng(txtAutoRefreshTime.Text) * 1000
             Timer1.Enabled = True
         Else
             Timer1.Enabled = False
         End If
     End Sub
     
-    Private Sub OnUpdateInterval() Handles Text1.Change
-        Dim lInt As Long = CLng(Text1.Text) * 1000&
+    Private Sub OnUpdateInterval() Handles txtAutoRefreshTime.Change
+        Dim lInt As Long = CLng(txtAutoRefreshTime.Text) * 1000&
         If lInt > 0 Then
             Timer1.Interval = lInt
         Else
@@ -199,7 +303,7 @@ Class frmMain
         Dim status As NTSTATUS = ClearStandby(False)
         If NT_SUCCESS(status) Then
             SetStatus szCSBOk
-            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+            UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
             SetStatus szPrivError
@@ -216,7 +320,7 @@ Class frmMain
         Dim status As NTSTATUS = ClearStandby(True)
         If NT_SUCCESS(status) Then
             SetStatus szCSBLPOk
-            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+            UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
             SetStatus szPrivError
@@ -234,7 +338,7 @@ Class frmMain
         Dim status As NTSTATUS = FlushModified()
         If NT_SUCCESS(status) Then
             SetStatus szFMOk
-            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+            UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
             SetStatus szPrivError
@@ -251,7 +355,7 @@ Class frmMain
         Dim status As NTSTATUS = EmptyWorkingSets()
         If NT_SUCCESS(status) Then
             SetStatus szWSOk
-            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+            UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
             SetStatus szPrivError
@@ -271,7 +375,7 @@ Class frmMain
         If NT_SUCCESS(status) Then
             szTmp = Replace$(szTmp, "%1", FormatSizeStd(llCb * PAGE_SIZE))
             SetStatus Replace$(szTmp, "%2", CStr(llCb))
-            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+            UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
             SetStatus szPrivError
@@ -288,7 +392,7 @@ Class frmMain
         Dim status As NTSTATUS = FlushRegistryCache()
         If NT_SUCCESS(status) Then
             SetStatus szRegOk
-            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+            UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
             SetStatus szPrivError
@@ -306,7 +410,7 @@ Class frmMain
         Dim status As NTSTATUS = FlushFileCache(llCb)
         If NT_SUCCESS(status) Then
             SetStatus Replace$(szFileOk, "%1", FormatSizeStd(llCb))
-            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+            UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
             SetStatus szPrivError
@@ -323,7 +427,7 @@ Class frmMain
         Dim status As NTSTATUS = AutoOptimize()
         If NT_SUCCESS(status) Then
             SetStatus szAAOk
-            If chkAutoRefresh.Value = vbUnchecked Then UpdateMemoryInfo()
+            UpdateMemoryInfo()
         ElseIf status = STATUS_PRIVILEGE_NOT_HELD Then
             Beep
             SetStatus szPrivError
@@ -423,8 +527,15 @@ Class frmMain
         Unload Me
     End Sub
     Private Sub OnUnload(Cancel As Integer) Handles Form.Unload
+        'Debug.Print "Form.Unload"
         SaveCurrentSettings
         UnSubclass2 Me.hWnd, AddressOf F1WndProc, Me.hWnd
+        Set cJL = Nothing
+        If bExitBug Then
+            ' ExitProcess(0)
+            PostQuitMessage(0)
+            
+        End If
     End Sub
     
     Private Sub ShowAbout()
@@ -461,6 +572,7 @@ Class frmMain
         Next
         SaveSetting App.Title, "Config0", "NotifyGuid", GUIDToString(tNIGuid)
         SaveSetting App.Title, "Config0", "ImagePath", GetExePath()
+        SaveSetting App.Title, "Config0", "ShowMemoryBar", CStr(chkToggleBar.Value)
     End Sub
     Private Sub LoadSavedSettings()
         If GetSetting(App.Title, "Config0", "MinimizeToTray", "0") = "0" Then
@@ -505,6 +617,8 @@ Class frmMain
             'Our executable has moved or been renamed; we need to generate a new GUID for the notify icon
             CoCreateGuid tNIGuid
         End If
+        chkToggleBar.Value = CLng(GetSetting(App.Title, "Config0", "ShowMemoryBar", vbChecked))
+        If chkToggleBar.Value = vbUnchecked Then HideMemoryBar()
     End Sub
     Private Function GetExePath() As String
         Dim sPath As String = String$(MAX_PATH, 0)
@@ -794,6 +908,7 @@ Class frmMain
     Call DeleteDC(hBackDC)
     HBitmapFromHIcon = hBitmap
     End Function
+    
     Private Function Create32BitHBITMAP(hDC As LongPtr, cx As Long, cy As Long) As LongPtr
     Dim bmi As BITMAPINFO
         bmi.bmiHeader.biSize = LenB(bmi.bmiHeader)
@@ -897,14 +1012,14 @@ Class frmMain
         Dim status As NTSTATUS
         Dim cbRet As Long
         Dim bErr As Boolean
-        
+    
         'Basic info 
         Dim sbi As SYSTEM_BASIC_INFORMATION
         Dim spi As SYSTEM_PERFORMANCE_INFORMATION
         status = NtQuerySystemInformation(SystemBasicInformation, sbi, LenB(Of SYSTEM_BASIC_INFORMATION), cbRet)
         status = NtQuerySystemInformation(SystemPerformanceInformation, spi, LenB(Of SYSTEM_PERFORMANCE_INFORMATION), cbRet)
         If NT_SUCCESS(status) Then
-            lblFree.Caption = FormatSizeStd((sbi.NumberOfPhysicalPages - spi.AvailablePages) * PAGE_SIZE) & " (" & Round((CSng(spi.AvailablePages) / CSng(sbi.NumberOfPhysicalPages)) * 100, 0) & "%)"
+            lblFree.Caption = FormatSizeStd((spi.AvailablePages) * PAGE_SIZE) & " (" & Round((CSng(spi.AvailablePages) / CSng(sbi.NumberOfPhysicalPages) * 100), 0) & "%)"
             lblTotal.Caption = FormatSizeStd(sbi.NumberOfPhysicalPages * PAGE_SIZE)
             lblCmtCur.Caption = FormatSizeStd(CLngLng(spi.CommittedPages) * PAGE_SIZE)
             lblCmtPk.Caption = FormatSizeStd(CLngLng(spi.PeakCommitment) * PAGE_SIZE)
@@ -1018,7 +1133,7 @@ Class frmMain
             End If
             .uTimeoutAndVersion = NOTIFYICON_VERSION_4
             ' If Shell_NotifyIconW(NIM_SETVERSION, tNIF) = 0 Then
-            '     MsgBox "NIM_SETVERSION Unsupported version"
+            '     MsgBox "NIM_SETVERSION error"
             ' End If
         End With
         
@@ -1170,22 +1285,70 @@ Class frmMain
                     SetShowInTaskbar(Me.hWnd, True)
                     RemoveTrayIcon()
                 End If
+            ' ElseIf (wParam = SC_CLOSE) Then
+            '     Debug.Print "SC_CLOSE"
             End If
             
         Case WM_MLMNOTIFYICON
-            If LOWORD(CLng(lParam)) = WM_CONTEXTMENU Then
-                ShowTrayContextMenu(hWnd)
-            ElseIf (LOWORD(CLng(lParam)) = WM_LBUTTONDBLCLK) Or (LOWORD(CLng(lParam)) = WM_LBUTTONUP) Then
+            'sdbg = sdbg & "0x" & Hex$(LOWORD(CLng(lParam))) & ", "
+            Dim wm As Long = LOWORD(CLng(lParam))
+            If (wm = WM_CONTEXTMENU) Or (wm = WM_RBUTTONUP) Then
+                If mInMenu = False Then
+                    mInMenu = True
+                    ShowTrayContextMenu(hWnd)
+                    mInMenu = False
+                    ' SetStatus "Got context menu click"
+                    ' ldbg = True
+                End If
+            ElseIf (wm = WM_LBUTTONDBLCLK) Or (wm = WM_LBUTTONUP) Then
                 ShowWindow Me.hWnd, SW_RESTORE
                 SetShowInTaskbar(Me.hWnd, True)
                 RemoveTrayIcon()
+                'SetStatus "restore, status " & ldbg & ", log=" & sdbg
             End If
- 
+        
+        Case WM_MLMUPDATEINFO
+            Dim lp As Long
+            #If Win64 Then
+                CopyMemory lp, lParam, 4
+            #Else
+                lp = lParam
+            #End If
+            If lp = STATUS_PRIVILEGE_NOT_HELD Then
+                Beep
+                SetStatus szPrivError
+            ElseIf lp = STATUS_INVALID_INFO_CLASS Then
+                Beep
+                SetStatus szBadVersion
+            ElseIf lp <> 0 Then
+                Beep
+                SetStatus szOpErr & GetNtErrorString(lp)
+            Else
+                Select Case wParam
+                    Case IDM_AUTOOPT: SetStatus szAAOk
+                    Case IDM_CLEARSTD: SetStatus szCSBOk
+                    Case IDM_CLEARSTDLP: SetStatus szCSBLPOk
+                    Case IDM_FLUSHMOD: SetStatus szFMOk
+                    Case IDM_EMPTYWS: SetStatus szWSOk
+                    Case IDM_COMBINE: SetStatus szCmbOk
+                    Case IDM_FLUSHFILES: SetStatus szFileOk2
+                    Case IDM_FLUSHREG: SetStatus szRegOk
+                End Select
+                UpdateMemoryInfo()
+            End If
+                
+        Case WM_CLOSE
+        '    Debug.Print "WM_CLOSE"
+            bExitBug = True
+        ' Case WM_QUIT: Debug.Print "WM_QUIT"
+        ' Case WM_NCDESTROY: Debug.Print "WM_NCDESTROY"
         Case WM_DESTROY
+            Debug.Print "WM_DESTROY"
             If mInTray Then RemoveTrayIcon()
             Call UnSubclass2(hWnd, AddressOf F1WndProc, uIdSubclass)
     End Select
     F1WndProc = DefSubclassProc(hWnd, uMsg, wParam, lParam)
     End Function
+
  
 End Class
