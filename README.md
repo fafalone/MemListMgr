@@ -1,5 +1,5 @@
 # MemListMgr
-## Memory List Manager v2.0
+## Memory List Manager v2.1
 #### by Jon Johnson (fafalone), (c) 2024, MIT License
 
 ![image](https://github.com/fafalone/MemListMgr/assets/7834493/db57b792-9823-4616-9b55-dae4d9d869ac)
@@ -7,6 +7,15 @@
 Memory List Manager is a small, lightweight utility to clear standby memory and flush caches, without needing to load a full heavyweight system resources app like SystemInformer, the code for which this project is based on. Windows keeps memory contents it thinks you might use again soon loaded and marked as standby, theoretically this memory is 'available' but memory management isn't always perfect, and high persistent standby and especially modified memory can cause reduced system performance, certain issues with some memory intensive apps or even lead to spurious out of memory errors and system destabilization.
 
 ### Updates
+Version 2.1.4 (29 Jun 2024)\
+-Added toggle for memory bar at top\
+-GUI will now update when jump list commands are used\
+-Always call UpdateMemoryInfo immediately after op\
+-Bug fix: Autooptmize taskbar command not working\
+-Bug fix: Taskbar command accelerators not supported.\
+-Bug fix: Mem free display mismatch\
+-Temp. workaround for exit while minimized failure 
+ 
 Version 2.0.2 (21 Jun 2024)\
 -Bug fix, debug MsgBox on exit still enabled. Built with new version info fix.\
 Version 2.0 (21 Jun 2024)\
